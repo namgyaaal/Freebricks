@@ -6,6 +6,7 @@ use std::{borrow::Cow, fmt::Debug, mem::size_of};
 
 use crate::{common::{asset_cache::{AssetCache}}, render::{camera::Camera, render_state::{RenderPassInfo, RenderState}, texture::Texture}};
 
+const MAX_DEBUG_VERTICES: u64 = 1024 * 1024; 
 
 #[derive(Resource)]
 pub struct DebugDraw {
@@ -15,6 +16,9 @@ pub struct DebugDraw {
 }
 
 impl DebugDraw {
+
+    /// Initialization DebugDraw 
+    /// Requires Camera to be initialized so that it can get the camera bind group layout 
     pub fn init(world: &mut World) {
         let asset_cache = world.get_resource::<AssetCache>()
             .unwrap();
@@ -23,8 +27,6 @@ impl DebugDraw {
             .get_shader("shaders/debug_draw.wgsl")
             .expect("Couldn't load debug shader");
 
-
-     
 
         let render_state = world.get_resource::<RenderState>()
             .expect("DebugDraw::init(), expected Render State");
@@ -37,7 +39,7 @@ impl DebugDraw {
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Debug Line Data"),
-            size: size_of::<DebugVertex>() as u64 * (1024 * 1024),  // Should be good enough. 
+            size: size_of::<DebugVertex>() as u64 * MAX_DEBUG_VERTICES,  // Should be good enough. 
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false 
         });
@@ -107,6 +109,7 @@ impl DebugDraw {
         });
     }
 
+    /// Renders the debug draw lines onto the scene 
     pub fn render(
         mut debug_draw: ResMut<DebugDraw>, 
         mut info: ResMut<RenderPassInfo>, 
@@ -150,6 +153,10 @@ impl DebugRenderBackend for DebugDraw {
         b: Point<f32>,
         _color: DebugColor) 
     {
+        // Just means that the scene is too big, don't need to treat as an error. 
+        if self.lines.len() >= MAX_DEBUG_VERTICES as usize {
+            return;
+        }
         self.lines.push(Vec3::new(a.x, a.y, a.z));
         self.lines.push(Vec3::new(b.x, b.y, b.z));
     }

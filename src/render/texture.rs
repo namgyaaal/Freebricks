@@ -1,6 +1,12 @@
 use image::GenericImageView;
 use anyhow::*;
 
+/*
+    Based off of the learn wgpu tutorial -- probably needs to be changed later on 
+
+*/
+
+
 pub struct Texture {
     #[allow(unused)]
     pub texture: wgpu::Texture,

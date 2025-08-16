@@ -4,6 +4,10 @@ use bevy_ecs::prelude::*;
 use petgraph::{matrix_graph::{UnMatrix}, visit::{Bfs, NodeIndexable}};
 use crate::components::{bricks::*, common::{Position, Rotation, Size}, model::*};
 
+
+/// Function for seeing if bricks snap together 
+/// 
+/// TODO: CHECK STUDS
 fn touch_check(pos_a: &Position, size_a: &Size, _brick_a: &Brick, 
                pos_b: &Position, size_b: &Size, _brick_b: &Brick) -> bool {
 
@@ -30,14 +34,19 @@ fn touch_check(pos_a: &Position, size_a: &Size, _brick_a: &Brick,
     return true;
 }
 
-
+/// Given a world with bricks, subdivide into owned and not owned and insert models 
 pub fn build_models(world: &mut World) {
     let mut bricks = world.query::<(Entity, &Position, &Rotation, &Size, &Brick)>();
     
     let mut aabb_bricks = Vec::new();
 
     for (entity, position, rotation, size, brick) in bricks.iter(&world) {
-        // Don't handle rotated ones for now 
+        /*
+            It would be an enhancement to allow for rotated bricks, I think it would just require some clever mathematics 
+                (finding centroids and doing reverse transformations+rotations) to figure if they snap together 
+
+            For now we don't handle this 
+         */
         if !rotation.is_near_identity() {
             continue 
         }
@@ -90,6 +99,7 @@ pub fn build_models(world: &mut World) {
     /*
         Traverse graphs and collect components 
      */
+
     let mut collections = Vec::new();
     for i in 0..graph.node_count() {
         // If already added to component, continue 
@@ -98,6 +108,23 @@ pub fn build_models(world: &mut World) {
         }
 
         let start_node = graph.from_index(i);
+
+        // TODO: Graph format instead 
+
+        for (a, b, ()) in graph.edges(start_node) {
+            let _other_node = {
+                if start_node == b {
+                    a
+                } else {
+                    b
+                }
+            };
+
+
+
+
+        }
+
 
         let mut collection = HashSet::new();
         collection.insert(graph[start_node]);
@@ -120,16 +147,16 @@ pub fn build_models(world: &mut World) {
     // If len() >= 2, Brick needs to be under a model 
 
     for collection in collections {
-        if collection.len() == 1 {
-            // Don't need to do anything here. 
-        } else { 
-
+        if collection.len() > 1 {
             for brick in &collection {
                 world.entity_mut(*brick) 
                     .insert(Owned {});
             }
             world.spawn(
-                Model { set: collection }
+                Model { 
+                    set: collection, 
+                    graph: graph.clone() }
+
             );
         
         }   

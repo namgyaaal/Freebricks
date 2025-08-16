@@ -5,7 +5,7 @@ use glam::{quat, Vec3};
 use rapier3d::{prelude::*};
 use rapier3d::pipeline::DebugRenderPipeline;
 use crate::components::common::{Position, Rotation};
-use crate::components::model::Model;
+use crate::components::model::{Model, ModelQuery};
 use crate::{
     common::state::*,
     render::debug_draw::*,
@@ -36,6 +36,7 @@ impl State<PhysicsState> for PhysicsState {
 }
 
 impl PhysicsState {
+    /// Initialize physics scene. Doesn't require anything before it. 
     pub fn new() -> Self {
         let rigid_bodies = RigidBodySet::new();
         let colliders = ColliderSet::new();
@@ -70,6 +71,9 @@ impl PhysicsState {
         }
     }
 
+
+    /// Initialize a scene
+    /// Assumes that models and bricks are built beforehand such relationships are graphed correctly 
     pub fn init_scene(
         mut state: ResMut<PhysicsState>, 
         bricks: Query<BrickPhysicsQuery, (With<Brick>, Without<Owned>)>, 
@@ -83,6 +87,8 @@ impl PhysicsState {
         let colliders = &mut state.colliders;
         let rigid_bodies = &mut state.rigid_bodies;
 
+
+        // Handle Bricks not owned by models         
         for brick in bricks {
             let size = brick.size.0 / 2.0; 
             let pos = brick.position;
@@ -112,6 +118,7 @@ impl PhysicsState {
                 let body = RigidBodyBuilder::dynamic()
                     .translation(vector![pos.x, pos.y, pos.z])
                     .rotation(vector![yaw, pitch, roll])
+                    .user_data(brick.entity.index() as u128)
                     .build();
 
                 let body_handle = {
@@ -128,7 +135,7 @@ impl PhysicsState {
             }
         }
 
-
+        // Handle models & bricks owned by them 
         for (model_id, model) in models.iter() {
 
             let mut brick_shapes= Vec::new();
@@ -147,6 +154,7 @@ impl PhysicsState {
             }
 
             let body = RigidBodyBuilder::dynamic()
+                .user_data(model_id.index() as u128)
                 .build();
 
             let body_handle = rigid_bodies.insert(body);
@@ -156,14 +164,72 @@ impl PhysicsState {
                 commands.entity(*e).insert(ShapeHandle(handle));
             }
             commands.entity(model_id).insert(BodyHandle(body_handle));
-            println!("Model Added");
         }
 
 
 
     }
 
+    // Called when bricks are added into the scene 
+    // Note: Bricks covered under "init_scene" are not included under this (unlike SceneTree)
+    //      This is because models aren't handled for now for new bricks after the initial scene 
+    pub fn add_bricks(
+        mut commands: Commands,
+        mut state: ResMut<PhysicsState>, 
+        query: Query<BrickPhysicsQuery, (BrickFilterAdded, Without<ShapeHandle>)>
+    ) {
+        
+        let state= state.deref_mut();
+        let colliders = &mut state.colliders;
+        let rigid_bodies = &mut state.rigid_bodies;
 
+        for brick in query.iter() {
+            let size = brick.size.0 / 2.0; 
+            let pos = brick.position;
+            let (yaw, pitch, roll) = {
+                let (axis, angle) = brick.rotation.to_axis_angle();
+
+                (axis.x * angle, axis.y * angle, axis.z * angle)
+            };
+            // rapier3d supports rigidbody-less collisionshapes that are still solid. 
+            if brick.physical.anchored {
+                let shape = ColliderBuilder::cuboid(size.x, size.y, size.z) 
+                    .translation(vector![brick.position.x, brick.position.y, brick.position.z])
+                    .rotation(vector![yaw, pitch, roll])
+                    .restitution(0.4)
+                    .build();
+                let handle = colliders.insert(shape);
+                commands
+                    .entity(brick.entity)
+                    .insert(ShapeHandle(handle));
+                    
+            } else {
+                let shape = ColliderBuilder::cuboid(size.x, size.y, size.z)
+                    .restitution(0.4)
+                    .build();
+                
+                let body = RigidBodyBuilder::dynamic()
+                    .translation(vector![pos.x, pos.y, pos.z])
+                    .rotation(vector![yaw, pitch, roll])
+                    .user_data(brick.entity.index() as u128)
+                    .build();
+
+                let body_handle = {
+                    rigid_bodies.insert(body)
+                };
+                let shape_handle = {
+                    colliders
+                        .insert_with_parent(shape, body_handle, rigid_bodies)
+                };
+                commands 
+                    .entity(brick.entity)
+                    .insert(BodyHandle(body_handle)) 
+                    .insert(ShapeHandle(shape_handle));
+            }
+        }
+    }
+
+    /// Update physics state 
     pub fn step(mut state: ResMut<PhysicsState>) {
         let state = state.deref_mut();
 
@@ -187,50 +253,44 @@ impl PhysicsState {
         );
     }
 
-    pub fn update_bricks(state: Res<PhysicsState>, mut query: Query<BrickPhysicsUpdate>) {
+    /// Push updated physics state onto the relevant components 
+    /// Works best after PhysicsState::step 
+    pub fn update_components(state: Res<PhysicsState>, 
+        mut query: Query<BrickPhysicsUpdate, Without<Owned>>, 
+        models: Query<ModelQuery>,
+        mut owned_bricks: Query<(&mut Position, &mut Rotation, &ShapeHandle), With<Owned>>) {
         let rigid_bodies = &state.rigid_bodies;
+        let colliders = &state.colliders;
 
-        for mut brick in query.iter_mut() {
 
-            if let Some(body) = rigid_bodies.get(brick.body_handle.0) {
-                let pos = body.position().translation; 
+        for (_handle, body) in rigid_bodies.iter() {
+            if body.is_sleeping() {
+                continue 
+            }
+
+            let e = Entity::from_raw(body.user_data as u32);
+
+            if let Ok(mut brick) = query.get_mut(e) {
+                let pos = body.position().translation;
                 let rot = body.position().rotation;
 
                 brick.position.0 = Vec3::new(pos.x, pos.y, pos.z);
                 brick.rotation.0 = quat(rot.i, rot.j, rot.k, rot.w);
-            }
-        }
-    }
-
-    pub fn update_models(
-            state: Res<PhysicsState>, 
-            models: Query<(&Model, &BodyHandle)>, 
-            mut bricks: Query<(&mut Position, &mut Rotation, &ShapeHandle)>) {
-
-        let rigid_bodies= &state.rigid_bodies;
-        let colliders = &state.colliders;
-        // Clean this up 
-        for (model, handle) in models {
-            if let Some(_body) = rigid_bodies.get(handle.0) {
-
-                for entity in &model.set {
-                    if let Ok((mut p, mut r, h)) = bricks.get_mut(*entity) {
-                        let pos1 = colliders.get(h.0).unwrap().translation();
-                        
-                        let rot1 = colliders.get(h.0).unwrap().rotation();
-
-               
-                        r.0 = quat(rot1.i, rot1.j, rot1.k, rot1.w);
-                        p.0 = Vec3::new(pos1.x, pos1.y, pos1.z);
-                    }   
+            } else if let Ok(model) = models.get(e) {
+                for brick_index in &model.model.set{
+                    if let Ok((mut p, mut r, h)) =owned_bricks.get_mut(*brick_index) {
+                        let pos = colliders.get(h.0).unwrap().translation();
+                        let rot = colliders.get(h.0).unwrap().rotation();
+                        r.0 = quat(rot.i, rot.j, rot.k, rot.w);
+                        p.0 = Vec3::new(pos.x, pos.y, pos.z);
+                    }
                 }
             }
-
+  
         }
-
     }
 
-
+    /// Write lines for debug drawing 
     pub fn write_debug(mut state: ResMut<PhysicsState>, mut debug_draw: ResMut<DebugDraw>) {
         let state = state.deref_mut();
 

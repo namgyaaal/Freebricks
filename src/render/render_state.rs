@@ -19,8 +19,9 @@ pub enum RenderOptions {
 }
 
 
-// Exists for the duration of the pass 
 #[derive(Resource)]
+/// Resource that is used during render stage that keeps the command encoder and render pass as 
+///     bevy_ecs resources so that they can be used by systems.
 pub struct RenderPassInfo {
     pub command: Option<wgpu::CommandEncoder>,
     // Lifetime is dropped in this context. 
@@ -49,6 +50,7 @@ pub struct RenderState {
 }
 
 impl State<RenderState> for RenderState {
+    /// Shorthand to make a RenderPassInfo resource and also insert self as a resource. 
     fn consume(world: &mut World, state: RenderState) {
         world.insert_resource(state);
         world.insert_resource(RenderPassInfo {
@@ -61,7 +63,8 @@ impl State<RenderState> for RenderState {
 
 impl RenderState {
 
-    pub async fn new (window: Arc<Window>, options: BitFlags<RenderOptions>) -> Result<Self> {
+    /// Given a window, create wgpu adapter/device/etc 
+    pub async fn new(window: Arc<Window>, options: BitFlags<RenderOptions>) -> Result<Self> {
         
         let size = window.inner_size();
 
@@ -138,9 +141,8 @@ impl RenderState {
         })
     }
 
-    /*
-        Subtle: Also used for initializing the rendering
-     */
+    /// Resize window 
+    /// also used as a hint to start the surface for wgpu 
     pub fn resize(&mut self, _width : u32, _height: u32) {
 
         if _width == 0 || _height == 0 {
@@ -162,7 +164,7 @@ impl RenderState {
         }
     }
 
-    // Jeez mouthful, find a better way to compose this 
+    /// Start a render pass that can be used to render to 
     pub fn begin_pass(&mut self) -> Result<Option<RenderPassInfo>, wgpu::SurfaceError> {
         self.window.request_redraw();
 
@@ -251,9 +253,8 @@ impl RenderState {
         }))
     }
 
-    /*
-        Submit render pass and empty RenderPassInfo, should only be called after begin_pass(), otherwise unexpected behavior. 
-     */
+    /// Submit render pass and empty RenderPassInfo 
+    /// Should only be called after begin_pass()
     pub fn flush(state: Res<RenderState>, mut pass_info: ResMut<RenderPassInfo>) {
         let mut encoder = pass_info.command
             .take()
@@ -282,7 +283,7 @@ impl RenderState {
             match queries.get_timestamp(&state.device, &state.queue) {
                 None => {}, 
                 Some(_timestamp) => {
-                    //info!("GPU Step: {:.3}", timestmap);
+                    //tracing::info!("GPU Step: {:.3}", _timestamp);
                 }
             }
         }

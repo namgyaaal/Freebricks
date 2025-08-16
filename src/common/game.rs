@@ -1,4 +1,5 @@
 use bevy_ecs::{prelude::*};
+use rand::Rng;
 use winit::{dpi::PhysicalSize, window::Window};
 use std::sync::Arc;
 use anyhow::Result;
@@ -6,11 +7,21 @@ use tracing::{error};
 use glam::{Vec3};
 
 
-pub fn foobar(mut query: Query<&mut Color>, mut count: Local<u64>) {
-    if *count % 60 == 0 {
-        for _color in query.iter_mut() {
-        //    color.0 = [rand::random(), rand::random(), rand::random(), 255];
-        }
+pub fn foobar(mut commands: Commands, mut count: Local<u64>) {
+    let mut rng = rand::rng();
+
+    if *count % 30 == 0  && *count > 120 {
+        commands.spawn((
+            Brick::default(), 
+            Position(Vec3::new(
+                rng.random_range(-50.0..=50.0), 
+                rng.random_range(2.0..=50.0),
+                rng.random_range(-50.0..=50.0))
+            ),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
+            Physical{ anchored: false },
+            Color([rand::random(), rand::random(), rand::random(), 255])            
+        ));
     }
 
     *count += 1; 
@@ -38,7 +49,6 @@ impl Game {
         ).await.expect("Game::new(), couldn't create Render State");
 
 
-
         let mut world = World::new();
         
         let asset_cache = AssetCache::init("assets")
@@ -49,6 +59,7 @@ impl Game {
         let physics_state = PhysicsState::new();
         let mut init_schedule = Schedule::default();
         let mut update_schedule = Schedule::default();
+
         let mut post_update_schedule = Schedule::default();
         let mut render_schedule = Schedule::default();
 
@@ -65,33 +76,30 @@ impl Game {
                 Camera::init,
                 SceneTree::init,
                 DebugDraw::init,
-                SceneTree::gen_bricks, 
                 build_models,
                 PhysicsState::init_scene, 
             ).chain()
         );
         update_schedule.add_systems(
             (
-                PhysicsState::step, 
-                PhysicsState::write_debug,
-                PhysicsState::update_bricks,
-                PhysicsState::update_models
+                PhysicsState::add_bricks,
+                foobar,
             ).chain()
         );
 
-        post_update_schedule.add_systems(
-            (
-                SceneTree::update_bricks,
-            ).chain()
-        );
+        post_update_schedule.add_systems((
+            PhysicsState::step,  
+            PhysicsState::write_debug.after(PhysicsState::step), 
+            PhysicsState::update_components.after(PhysicsState::step), 
+            SceneTree::add_bricks.before(SceneTree::update_bricks), 
+            SceneTree::update_bricks,
+        ));
 
-        render_schedule.add_systems(
-            (   
-                SceneTree::render,
-                DebugDraw::render,
-                RenderState::flush
-            ).chain()
-        );
+        render_schedule.add_systems((
+            SceneTree::render.before(RenderState::flush),
+            DebugDraw::render.before(RenderState::flush),
+            RenderState::flush
+        ));
 
         // Do anything here 
         let mut bricks = Vec::new();

@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, u16};
 
 /*
 
@@ -13,6 +13,8 @@ use crate::{
     render::{bricks::*, camera::*, render_state::{RenderPassInfo, RenderState}, texture::*}
 };
 
+const MAX_INSTANCE_BUFFER_COUNT: usize = u16::MAX as usize;
+
 #[derive(Resource)]
 pub struct SceneTree {
     pub pipeline: wgpu::RenderPipeline,
@@ -25,6 +27,9 @@ pub struct SceneTree {
 }
 
 impl SceneTree {
+
+    /// Called at beginning of game. 
+    /// Requires renderstate to be initialized and must be called before gen_bricks
     pub fn init(world: &mut World) {
         let render_state = world.get_resource::<RenderState>()
             .expect("SceneTree::init(), expected Render State");
@@ -244,42 +249,51 @@ impl SceneTree {
         });
 
 
+        let bricks: Vec<BrickUniform> = Vec::with_capacity(MAX_INSTANCE_BUFFER_COUNT);
+
+        let instance_buffer = device.create_buffer(
+            &wgpu::BufferDescriptor {
+                label: Some("Brick Instance Buffer"),
+                size: (std::mem::size_of::<BrickUniform>() * MAX_INSTANCE_BUFFER_COUNT) as u64,  
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false  
+            }
+        );
+
 
         world.insert_resource(Self {
             pipeline: render_pipeline,
             brick_vb: vb, 
             brick_ib: ib,
-            brick_ibos: Vec::new(),
+            brick_ibos: vec![instance_buffer],
             scene_bg: scene_kit_group,
             texture_bg: texture_group,
-            bricks: Vec::new()
+            bricks: bricks
         });
     }
 
-    pub fn gen_bricks(mut st: ResMut<SceneTree>, state: Res<RenderState>, mut query: Query<BrickQueryReorder>) {
-        let device = &state.device;
-
-        let mut i = 0; 
-        let mut brick_data: Vec<BrickUniform> = Vec::new();
+    /// Called in update loop if bricks are added to the scene during the game 
+    /// Reorders the BufferIndex component to its position in the instance buffer 
+    pub fn add_bricks(state: Res<RenderState>, mut st: ResMut<SceneTree>, mut query: Query<BrickQueryReorder, BrickFilterAdded>) {
+        let queue= &state.queue;
 
         for mut brick in query.iter_mut() {
-            brick_data.push(Brick::to_uniform(brick.brick, brick.position, brick.rotation, brick.size, brick.color));
-            brick.buffer_index.0 = Some(i);
-            i += 1;
-
+            // Give buffer index the size of the vector for now until we need multiple buffers 
+            brick.buffer_index.0 = Some(st.bricks.len() as u32);
+            
+            st.bricks.push(Brick::to_uniform(
+                brick.brick, 
+                brick.position,
+                brick.rotation, 
+                brick.size,
+                brick.color)
+            );
         }
-
-        let instance_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Instance Buffer"),
-                contents: bytemuck::cast_slice(&brick_data),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            }
-        );
-
-        st.brick_ibos.push(instance_buffer);
-        st.bricks = brick_data;
-    }
+        // Again, using this until we have multiple buffers.
+        if let Some(buffer) = st.brick_ibos.first() {
+            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&st.bricks));
+        }
+    } 
 
     pub fn update_bricks(scene: Res<RenderState>, mut st: ResMut<SceneTree>, query: Query<BrickQuery, BrickFilterUpdate>) {
         #[allow(unused)]
@@ -294,11 +308,16 @@ impl SceneTree {
                 *uniform = Brick::to_uniform(brick.brick, brick.position, brick.rotation, brick.size, brick.color);
             }
 
-            if let Some(buffer) = st.brick_ibos.first() {
-                queue.write_buffer(buffer, 0, bytemuck::cast_slice(&st.bricks));
-            }
+            
         }
+        // Full update of instance buffer 
+        if let Some(buffer) = st.brick_ibos.first() {
+            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&st.bricks));
+        }
+
     }
+
+
 
 
     pub fn render(scene_tree: ResMut<SceneTree>, mut info: ResMut<RenderPassInfo>) {

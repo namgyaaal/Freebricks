@@ -1,4 +1,7 @@
-// https://github.com/gfx-rs/wgpu/blob/trunk/examples/features/src/timestamp_queries/mod.rs
+/*
+
+Modification of https://github.com/gfx-rs/wgpu/blob/trunk/examples/features/src/timestamp_queries/mod.rs
+*/
 
 
 pub struct Queries {

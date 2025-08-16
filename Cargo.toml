@@ -17,7 +17,7 @@ glam = "0.30.4"
 profiling = "1.0.17"
 rand = "0.9.1"
 bevy_ecs = "0.16.1"
-rapier3d = { version = "0.26.1", features = [ "debug-render" ] }
+rapier3d = { version = "0.26.1", features = [ "debug-render", "simd-stable", "parallel" ] }
 bevy_derive = "0.16.1"
 enumflags2 = "0.7.12"
 petgraph = "0.8.2"

@@ -11,6 +11,7 @@ pub enum Asset {
 }
 
 impl Asset {
+    /// Given a filepath, parse it if it's a relevant asset, otherwise return nothing. 
     pub fn from_file(path: &Path, mut file: File) -> Option<Self> {
         let metadata = metadata(path)
             .expect(format!("Error loading metadata for file").as_str());
@@ -46,6 +47,7 @@ pub struct AssetCache {
 }
 
 impl AssetCache {
+    /// Recursively load a directory for relevant assets
     pub fn init(dir: &str) -> Result<Self> {
         let mut map : HashMap<String, Asset> = HashMap::new();
 
@@ -82,7 +84,7 @@ impl AssetCache {
         Ok(AssetCache { map: map })
     }
 
-
+    /// Shorthand to get a shader to prevent having to do match every time 
     pub fn get_shader(&self, name: &str) -> Option<&String> {
         if let Some(asset) = self.map.get(name) {
             match asset {
@@ -96,6 +98,7 @@ impl AssetCache {
         return None; 
     } 
 
+    /// Shorthand to get an image to prevent having to do a match every time 
     pub fn get_image(&self, name: &str) -> Option<&[u8]> {
         if let Some(asset) = self.map.get(name) {
             match asset {
