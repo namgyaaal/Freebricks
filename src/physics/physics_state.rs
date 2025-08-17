@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use bevy_ecs::prelude::*;
@@ -5,7 +6,7 @@ use glam::{quat, Vec3};
 use rapier3d::{prelude::*};
 use rapier3d::pipeline::DebugRenderPipeline;
 use crate::components::common::{Position, Rotation};
-use crate::components::model::{Model, ModelQuery};
+use crate::components::model::{Model, ModelCleanup, ModelEnd, ModelQuery};
 use crate::{
     common::state::*,
     render::debug_draw::*,
@@ -78,7 +79,7 @@ impl PhysicsState {
         mut state: ResMut<PhysicsState>, 
         bricks: Query<BrickPhysicsQuery, (With<Brick>, Without<Owned>)>, 
         owned_bricks: Query<BrickPhysicsQuery, (With<Brick>, With<Owned>)>,
-        models: Query<(Entity, &mut Model)>,
+        models: Query<(Entity, &mut Model, &Children)>,
         mut commands: Commands) 
     {
         // Need to deref like this to get around borrow checker
@@ -136,12 +137,13 @@ impl PhysicsState {
         }
 
         // Handle models & bricks owned by them 
-        for (model_id, model) in models.iter() {
+        for (model_id, _model, children) in models.iter() {
 
             let mut brick_shapes= Vec::new();
 
-            for e in &model.set { 
-                if let Ok(brick) = owned_bricks.get(*e) {
+            for &e in children {
+            //for e in &model.set { 
+                if let Ok(brick) = owned_bricks.get(e) {
 
 
                     let size = brick.size.0 / 2.0;
@@ -161,7 +163,7 @@ impl PhysicsState {
 
             for (e, shape) in brick_shapes {
                 let handle = colliders.insert_with_parent(shape, body_handle, rigid_bodies);
-                commands.entity(*e).insert(ShapeHandle(handle));
+                commands.entity(e).insert(ShapeHandle(handle));
             }
             commands.entity(model_id).insert(BodyHandle(body_handle));
         }
@@ -253,12 +255,96 @@ impl PhysicsState {
         );
     }
 
+    /// Process models being deleted or destructured 
+    pub fn process_components(
+        mut commands: Commands,
+        mut state: ResMut<PhysicsState>,
+        mut loose_bricks: RemovedComponents<ChildOf>,
+        mut model_er: EventReader<ModelCleanup>,
+        shapes: Query<&ShapeHandle>) 
+    {
+        if model_er.is_empty() {
+            return 
+        }
+
+        let state = state.deref_mut();
+        let rigid_bodies = &mut state.rigid_bodies;
+        let islands = &mut state.island_manager;
+        let colliders = &mut state.colliders;
+        let impulse_joints = &mut state.impulse_joint_set;
+        let multibody_joints = &mut state.multibody_joint_set;
+
+        // Save linear and angular velocity to reflect on children 
+        let mut lin_ang_map= HashMap::new();
+
+        for e in model_er.read() {
+            let handle = e.handle;
+            let children = &e.children;
+            let body = rigid_bodies.get(handle).expect("Couldn't get model rigid body handle");
+
+
+            if e.mode == ModelEnd::Destructure {
+                let linvel = body.linvel().clone();
+                let angvel = body.angvel().clone();
+
+                for child in children {
+                    lin_ang_map.insert(child, (linvel, angvel));
+                }
+            }
+
+
+            let remove_children= e.mode == ModelEnd::Delete; 
+            _ = rigid_bodies.remove(
+                handle,
+                islands, 
+                colliders, 
+                impulse_joints, 
+                multibody_joints,
+               remove_children
+            );
+        }
+
+        for e in loose_bricks.read() {
+            // If brick is removed alongside parent. Remember, this is ALL removed child compponents. 
+            if shapes.get(e).is_err() {
+                continue 
+            }
+
+            let h = shapes.get(e).expect("Couldn't get shape").0;
+            let c = colliders.get(h).expect("Couldn't get collider");
+            let ea = c.position().rotation.euler_angles();
+
+            let lin_ang = {
+                lin_ang_map.get(&e.index()).unwrap()
+            };
+
+            let body = RigidBodyBuilder::dynamic()
+                .translation(c.translation().xyz())
+                .rotation(vector![ea.0, ea.1, ea.2])
+                .linvel(lin_ang.0)
+                .angvel(lin_ang.1)
+                .user_data(e.index() as u128)
+                .build();
+
+            let body_handle = {
+                rigid_bodies.insert(body)
+            }; 
+            colliders.set_parent(h, Some(body_handle), rigid_bodies);
+
+
+            commands.entity(e).insert(BodyHandle(body_handle));
+        }
+
+    }
+
     /// Push updated physics state onto the relevant components 
     /// Works best after PhysicsState::step 
     pub fn update_components(state: Res<PhysicsState>, 
-        mut query: Query<BrickPhysicsUpdate, Without<Owned>>, 
+        mut query: Query<BrickPhysicsUpdate, Without<ChildOf>>, 
         models: Query<ModelQuery>,
-        mut owned_bricks: Query<(&mut Position, &mut Rotation, &ShapeHandle), With<Owned>>) {
+        mut owned_bricks: Query<(&mut Position, &mut Rotation, &ShapeHandle), With<ChildOf>>) 
+    {
+
         let rigid_bodies = &state.rigid_bodies;
         let colliders = &state.colliders;
 
@@ -277,8 +363,8 @@ impl PhysicsState {
                 brick.position.0 = Vec3::new(pos.x, pos.y, pos.z);
                 brick.rotation.0 = quat(rot.i, rot.j, rot.k, rot.w);
             } else if let Ok(model) = models.get(e) {
-                for brick_index in &model.model.set{
-                    if let Ok((mut p, mut r, h)) =owned_bricks.get_mut(*brick_index) {
+                for &brick_index in model.children{
+                    if let Ok((mut p, mut r, h)) =owned_bricks.get_mut(brick_index) {
                         let pos = colliders.get(h.0).unwrap().translation();
                         let rot = colliders.get(h.0).unwrap().rotation();
                         r.0 = quat(rot.i, rot.j, rot.k, rot.w);

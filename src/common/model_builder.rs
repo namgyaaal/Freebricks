@@ -152,12 +152,12 @@ pub fn build_models(world: &mut World) {
                 world.entity_mut(*brick) 
                     .insert(Owned {});
             }
-            world.spawn(
-                Model { 
-                    set: collection, 
-                    graph: graph.clone() }
 
-            );
+            let entities : Vec<Entity> = collection.clone().into_iter().collect();
+
+            world.spawn((
+                Model { graph: graph.clone() },
+            )).add_children(&entities);
         
         }   
     }

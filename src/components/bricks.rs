@@ -133,3 +133,9 @@ pub struct BrickFilterUpdate {
         Changed<Color>
     )>
 }
+
+/*---------------------
+
+    Event stuff
+
+*/

@@ -8,8 +8,8 @@ use std::{borrow::Cow, u16};
 use bevy_ecs::prelude::*;
 use wgpu::util::DeviceExt;
 use crate::{
-    common::{asset_cache::{AssetCache}},
-    components::bricks::*, 
+    common::asset_cache::AssetCache,
+    components::{bricks::*, render::RenderCleanup}, 
     render::{bricks::*, camera::*, render_state::{RenderPassInfo, RenderState}, texture::*}
 };
 
@@ -250,6 +250,8 @@ impl SceneTree {
 
 
         let bricks: Vec<BrickUniform> = Vec::with_capacity(MAX_INSTANCE_BUFFER_COUNT);
+        
+
 
         let instance_buffer = device.create_buffer(
             &wgpu::BufferDescriptor {
@@ -260,7 +262,6 @@ impl SceneTree {
             }
         );
 
-
         world.insert_resource(Self {
             pipeline: render_pipeline,
             brick_vb: vb, 
@@ -270,6 +271,46 @@ impl SceneTree {
             texture_bg: texture_group,
             bricks: bricks
         });
+    }
+
+    /// Adjust possible instance and uniform buffers on event of objects being deleted
+    pub fn remove_bricks(
+        mut st: ResMut<SceneTree>, 
+        mut query: Query<BrickQueryReorder>, 
+        mut er: EventReader<RenderCleanup>) 
+    {
+        let bricks = &mut st.bricks;
+        // Probably unoptimized, figure out better way to handle this. 
+        // If we have a lot of bricks it'll go through entire vector and reassign them!! 
+
+        let mut indices = Vec::new();
+        for bi in er.read() {
+            if let Some(i) = bi.buffer_index.0 {
+                indices.push(i);
+            }
+        }
+
+        if indices.len() == 0 {
+            return;
+        }
+
+
+
+
+        let mut index: u32 = 0;
+        bricks.retain_mut(|_| {
+            let remove = !indices.contains(&index);
+            index += 1;
+            remove
+        });
+
+
+        let mut index: u32 = 0; 
+        for mut bi in query.iter_mut() {
+            bi.buffer_index.0 = Some(index);
+            index += 1;
+        }
+
     }
 
     /// Called in update loop if bricks are added to the scene during the game 

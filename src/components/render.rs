@@ -1,7 +1,7 @@
 use bevy_ecs::prelude::*;
 use bevy_derive::{Deref, DerefMut};
 
-#[derive(Component, Debug, Deref, DerefMut)]
+#[derive(Component, Debug, Deref, DerefMut, Clone, Copy)]
 pub struct BufferIndex(pub Option<u32>);
 
 impl Default for BufferIndex {
@@ -25,4 +25,9 @@ impl Default for RenderMode {
     fn default() -> Self {
         RenderMode(RenderModeOption::None)
     }
+}
+
+#[derive(Event)]
+pub struct RenderCleanup {
+    pub buffer_index: BufferIndex
 }
