@@ -3,7 +3,7 @@ use bevy_ecs::query::QueryData;
 use crate::components::{common::*, render::*, physics::*};
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 /// Handling flat, outlet and inlet for now.
 /// In theory should support 16 possible types 
 pub enum StudType {
@@ -20,10 +20,6 @@ pub struct Brick {
     pub bottom: StudType 
 }
 
-#[derive(Component, Debug)]
-/// Is it owned by a model?
-/// TODO: Look into relationships 
-pub struct Owned {}
 
 impl Default for Brick {
     fn default() -> Self {

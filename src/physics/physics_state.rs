@@ -3,6 +3,7 @@ use std::ops::DerefMut;
 
 use bevy_ecs::prelude::*;
 use glam::{quat, Vec3};
+use rapier3d::na::Vector3;
 use rapier3d::{prelude::*};
 use rapier3d::pipeline::DebugRenderPipeline;
 use crate::components::common::{Position, Rotation};
@@ -77,8 +78,8 @@ impl PhysicsState {
     /// Assumes that models and bricks are built beforehand such relationships are graphed correctly 
     pub fn init_scene(
         mut state: ResMut<PhysicsState>, 
-        bricks: Query<BrickPhysicsQuery, (With<Brick>, Without<Owned>)>, 
-        owned_bricks: Query<BrickPhysicsQuery, (With<Brick>, With<Owned>)>,
+        bricks: Query<BrickPhysicsQuery, (With<Brick>, Without<ChildOf>)>, 
+        owned_bricks: Query<BrickPhysicsQuery, (With<Brick>, With<ChildOf>)>,
         models: Query<(Entity, &mut Model, &Children)>,
         mut commands: Commands) 
     {
@@ -312,15 +313,22 @@ impl PhysicsState {
 
             let h = shapes.get(e).expect("Couldn't get shape").0;
             let c = colliders.get(h).expect("Couldn't get collider");
-            let ea = c.position().rotation.euler_angles();
+            let trans = c.position().translation;
+
+            // Gimbal Lock trickery 
+            let (axis, angle) = c
+                .rotation()
+                .axis_angle()
+                .unwrap_or((Vector3::z_axis(), 0.0));
+            let ang_vector = axis.into_inner() * angle;
 
             let lin_ang = {
                 lin_ang_map.get(&e.index()).unwrap()
             };
 
             let body = RigidBodyBuilder::dynamic()
-                .translation(c.translation().xyz())
-                .rotation(vector![ea.0, ea.1, ea.2])
+                .translation(vector![trans.x, trans.y, trans.z])
+                .rotation(ang_vector)
                 .linvel(lin_ang.0)
                 .angvel(lin_ang.1)
                 .user_data(e.index() as u128)

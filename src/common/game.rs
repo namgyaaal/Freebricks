@@ -1,9 +1,9 @@
 use bevy_ecs::{prelude::*};
 use winit::{dpi::PhysicalSize, window::Window};
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 use anyhow::Result;
 use tracing::{error};
-use glam::{Vec3};
+use glam::{Vec2, Vec3};
 use crate::{
     common::{asset_cache::AssetCache, model_builder::*, state::State}, 
     components::{bricks::{Brick}, 
@@ -61,14 +61,14 @@ pub fn foobar(mut commands: Commands,
               indices: Query<&BufferIndex>) 
 {
 
-    if *count == 480 {
+    if *count == 180 {
         let mut i = 0;
         for model in models.iter() {
 
-            if i % 2 != 0 {
+            if i % 3 == 0 {
                 let mc = destructure_model(&mut commands, &model);
                 ew_model.write(mc);
-            } else {
+            } else if i % 3 == 1{
 
                 let (mc, rc) = delete_model(&mut commands, &model, indices);
 
@@ -170,45 +170,51 @@ impl Game {
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
 
-
-        for i in 50..70 {
-            let y = i as f32 * 2.0; 
-
-            bricks.push((
-                Brick::default(), 
-                Position(Vec3::new(0.0, y, 0.0)),
-                Size::default(),
-                Physical::dynamic(),
-                Color([rand::random(), rand::random(), rand::random(), 255])
-            ));
-        }
-
-        for i in 15..25 {
-            let y = i as f32; 
-
-            bricks.push((
-                Brick::default(), 
-                Position(Vec3::new(0.0, y, 0.0)),
-                Size(Vec3::new(10.0 - (20.0 - y).abs() as f32, 1.0, 10.0 - (20.0 - y).abs())),
-                Physical::dynamic(),
-                Color([rand::random(), rand::random(), rand::random(), 255])
-            ));
-        }
+        // Test brick attached to anchored brick 
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, 1.5, 0.0)),
+            Size(Vec3::new(40.00, 2.0, 40.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        )); 
 
 
-        for i in 35..45 {
-            let y = i as f32; 
+        let mut make_model = |range: Range<u32>, xz: Vec2| {
+            for i in range {
+                let y = i as f32; 
 
-            bricks.push((
-                Brick::default(), 
-                Position(Vec3::new(0.0, y, 0.0)),
-                Size(Vec3::new(10.0 - (40.0 - y).abs() as f32, 1.0, 10.0 - (40.0 - y).abs())),
-                Physical::dynamic(),
-                Color([rand::random(), rand::random(), rand::random(), 255])
-            ));
-        }
 
-       let _ = world.spawn_batch(bricks).collect::<Vec<Entity>>();
+
+                bricks.push((
+                    Brick::default(),
+                    Position(Vec3::new(xz.x, y, xz.y)),
+                    Size(Vec3::new(4.0, 1.0, 4.0)),
+                    Physical::dynamic(), 
+                    Color([rand::random(), rand::random(), rand::random(), 255]),
+                ));
+            }
+
+        };
+
+
+
+        make_model(15..25, Vec2::new(0.0, 0.0));
+
+        make_model(30..40, Vec2::new(5.0, 5.0));
+
+        make_model(45..50, Vec2::new(5.0, 5.0));
+
+        /* 
+        make_model(15..25, Vec2::new(10.0, 0.0));
+
+        make_model(30..40, Vec2::new(15.0, 5.0));
+
+        make_model(45..50, Vec2::new(10.0, 5.0));
+
+        */
+
+        let _ = world.spawn_batch(bricks).collect::<Vec<Entity>>();
 
 
 

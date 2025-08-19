@@ -1,8 +1,10 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use petgraph::matrix_graph::UnMatrix;
+use petgraph::prelude::UnGraphMap;
 use rapier3d::prelude::RigidBodyHandle;
 use core::fmt;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 
 use crate::components::physics::BodyHandle;
@@ -15,7 +17,9 @@ pub enum ModelEnd {
 
 #[derive(Component)]
 pub struct Model {
-    pub graph: UnMatrix<Entity, ()>
+    pub set: HashSet<Entity>,
+    pub graph: UnGraphMap<Entity, ()>,    
+    pub anchored: HashSet<Entity> 
 }
 
 // UnMatrix doesn't impl Debug :(

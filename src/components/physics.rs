@@ -1,6 +1,6 @@
 use bevy_ecs::prelude::*;
-use rapier3d::prelude::*;
-
+use rapier3d::{prelude::*};
+use std::collections::HashSet;
 
 #[derive(Component, Debug)]
 pub struct Physical {
@@ -32,3 +32,10 @@ pub struct BodyHandle(pub RigidBodyHandle);
 
 #[derive(Component, Debug)]
 pub struct ShapeHandle(pub ColliderHandle);
+
+#[derive(Component, Debug)]
+pub struct AnchoredTo(pub HashSet<Entity>);
+
+#[derive(Component, Debug)]
+pub struct AnchorOf(pub HashSet<Entity>);
+
