@@ -1,8 +1,21 @@
-use bevy_ecs::prelude::*;
-use freebricks::{common::{model_builder::build_models, state::State}, components::{bricks::*, common::Position, model::Model, physics::{AnchorSource, AnchoredTo, BodyHandle, Physical, ShapeHandle}}, physics::PhysicsState};
+use bevy_ecs::{prelude::*};
+use freebricks::{common::{model_builder::build_models, state::State}, components::{bricks::*, common::{Position, Size}, model::{Model}, physics::{AnchorSource, AnchoredTo, BodyHandle, Physical, PhysicsCleanup, ShapeHandle}}, physics::PhysicsState};
 use glam::Vec3;
 use rapier3d::prelude::RigidBodyType;
 
+/*
+    Quick and easy tagging for system functions 
+*/
+
+#[derive(Component)]
+struct Tag1;
+
+#[derive(Component)]
+struct Tag2;
+
+/*
+    Helper functions 
+*/
 
 fn util_setup() -> (World, Schedule, Schedule){
     let mut world = World::new();
@@ -84,9 +97,29 @@ fn body_check(world: &mut World, entity: Entity, body_type: RigidBodyType) {
     assert_eq!(body.body_type(), body_type);
 }
 
-fn get_models(world: &mut World) -> Vec<&Model> {
-    let mut query = world.query::<&Model>();
+fn get_models(world: &mut World) -> Vec<(Entity, &Model)> {
+    let mut query = world.query::<(Entity, &Model)>();
     query.iter(world).collect()
+}
+
+fn handle_deletion<T: Component>(
+        mut commands: Commands, 
+        mut ew: EventWriter<PhysicsCleanup>, 
+        query: Query<(Entity, &T)>,
+        bodies: Query<&BodyHandle>,
+        shapes: Query<&ShapeHandle>) {
+    let (e, _) = query.iter().next().expect("Couldn't get anchored brick");
+
+    commands.entity(e).despawn();
+
+    let pc = { 
+        PhysicsCleanup {
+            entity: e,
+            body: bodies.get(e).ok().map(|x| *x),
+            shape: shapes.get(e).ok().map(|x| *x),
+        }
+    };
+    ew.write(pc);
 }
 
 /*
@@ -185,7 +218,7 @@ pub fn two_snapped_bricks() {
         let models = get_models(&mut world);
 
         assert_eq!(models.len(), 1);
-        *models.iter().next().expect("Couldn't find model")
+        models.iter().next().expect("Couldn't find model").1
     };
     
     assert_eq!(model.graph.node_count(), 2);
@@ -194,7 +227,95 @@ pub fn two_snapped_bricks() {
 }
 
 #[test]
-pub fn touching_anchor() {
+pub fn two_smooth_bricks_touching() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let bricks = vec![
+        (
+            Brick {
+                top: StudType::Flat, 
+                bottom: StudType::Flat,
+            },
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 0.0, 0.0))
+        ), 
+        (
+            Brick {
+                top: StudType::Flat,
+                bottom: StudType::Flat,
+            }, 
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 1.0, 0.0))
+        )
+    ];
+    let entities = world.spawn_batch(bricks.into_iter())
+        .collect::<Vec<Entity>>();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    for entity in entities {
+        guarantee(&mut world, entity, false, false, false, false, true, true);
+        collider_check(&mut world, entity);
+        body_check(&mut world, entity, RigidBodyType::Dynamic);
+    }
+}
+
+#[test]
+pub fn two_models() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let bricks = vec![
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 0.0, 0.0))
+        ), 
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 1.0, 0.0))
+        ),
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(10.0, 0.0, 0.0))
+        ), 
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(10.0, 1.0, 0.0))
+        ),
+    ];
+    let entities = world.spawn_batch(bricks.into_iter())
+        .collect::<Vec<Entity>>();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    for entity in entities {
+        guarantee(&mut world, entity, false, false, true, false, true, false);
+        collider_check(&mut world, entity);
+    }
+   
+    let entities: Vec<Entity> = get_models(&mut world)
+        .iter()
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 2);
+            assert_eq!(m.anchored.len(), 0);
+            assert_eq!(m.set.len(), 2);
+            e
+        })
+        .collect();
+    assert_eq!(entities.len(), 2);
+    
+    for entity in entities {
+        body_check(&mut world, entity, RigidBodyType::Dynamic);
+    }
+}
+
+#[test]
+pub fn brick_touching_anchor() {
     let (mut world, mut sched_start, mut sched_update) = util_setup();
 
     let anchor = world.spawn((
@@ -215,4 +336,379 @@ pub fn touching_anchor() {
         
     guarantee(&mut world, anchor, false, true, false, false, true, false);
     guarantee(&mut world, anchored, true, false, false, false, true, true);
+
+    let state = world.get_resource::<PhysicsState>().unwrap();
+    assert_eq!(state.anchor_sources.len(), 1);
+    assert_eq!(state.anchor_sources.get(&anchor).expect("Anchor not in anchor sources").len(), 1);
+}
+
+#[test]
+pub fn model_touching_anchor() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let bricks = vec![
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 0.0, 0.0))
+        ), 
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 1.0, 0.0))
+        ),
+        (
+            Brick::default(),
+            Physical::anchored(),
+            Position(Vec3::new(0.0, 2.0, 0.0))
+        )
+    ];
+    let _ = world.spawn_batch(bricks.into_iter())
+        .collect::<Vec<Entity>>();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 2);
+            assert_eq!(m.anchored.len(), 1);
+            assert_eq!(m.set.len(), 2);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+
+    body_check(&mut world, *entities.first().unwrap(), RigidBodyType::Fixed);
+}
+
+#[test]
+pub fn anchor_deletion_brick() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let anchor = world.spawn((
+        Brick::default(),
+        Physical::anchored(),
+        Position(Vec3::new(0.0, 0.0, 0.0)),
+        Tag1,
+    )).id();
+
+    let anchored = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 1.0, 0.0))
+    )).id();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+        
+    guarantee(&mut world, anchor, false, true, false, false, true, false);
+    guarantee(&mut world, anchored, true, false, false, false, true, true);
+    body_check(&mut world, anchored, RigidBodyType::Fixed);
+
+    let state = world.get_resource::<PhysicsState>().unwrap();
+    assert_eq!(state.anchor_sources.len(), 1);
+    assert_eq!(state.anchor_sources.get(&anchor).expect("Anchor not in anchor sources").len(), 1);
+
+    /*
+        Delete anchored brick
+     */
+    let delete = world.register_system(handle_deletion::<Tag1>);
+    world.run_system(delete).expect("Error handling deletion");
+    sched_update.run(&mut world);
+    // Simulate another physics step 
+    let state = world.get_resource::<PhysicsState>().unwrap();
+    assert_eq!(state.anchor_sources.len(), 0);
+    guarantee(&mut world, anchored, false, false, false, false, true, true);
+    body_check(&mut world, anchored, RigidBodyType::Dynamic);
+}
+
+#[test]
+pub fn two_anchors_one_brick() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let anchor_one = world.spawn((
+        Brick::default(), 
+        Position(Vec3::new(2.0, 10.0, 0.0)),
+        Size(Vec3::new(4.0, 2.0, 4.0)),
+        Physical::default(),
+        Tag1,
+    )).id();
+    let anchor_two = world.spawn((
+        Brick::default(), 
+        Position(Vec3::new(2.0, 10.0, 0.0)),
+        Size(Vec3::new(4.0, 2.0, 4.0)),
+        Physical::default(),
+        Tag2,
+    )).id();
+    let anchored = world.spawn((
+        Brick::default(), 
+        Position(Vec3::new(0.0, 8.0, 0.0)),
+        Size(Vec3::new(5.0, 2.0, 5.0)),
+        Physical::dynamic(),
+    )).id();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    guarantee(&mut world, anchor_one, false, true, false, false, true, false);
+    guarantee(&mut world, anchor_two, false, true, false, false, true, false);
+    collider_check(&mut world, anchor_one);
+    collider_check(&mut world, anchor_two);
+
+    guarantee(&mut world, anchored, true, false, false, false, true, true);
+    body_check(&mut world, anchored, RigidBodyType::Fixed);
+
+    let state = world.get_resource::<PhysicsState>().unwrap();
+    assert_eq!(state.anchor_sources.len(), 2);
+    assert_eq!(state.anchor_sources.get(&anchor_one).expect("Anchor not in anchor sources").len(), 1);
+    assert_eq!(state.anchor_sources.get(&anchor_two).expect("Anchor not in anchor sources").len(), 1);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+    let delete_two = world.register_system(handle_deletion::<Tag2>);
+
+    // Delete one anchor 
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world); 
+
+    let state = world.get_resource::<PhysicsState>().unwrap();
+    assert_eq!(state.anchor_sources.len(), 1);
+    guarantee(&mut world, anchored, true, false, false, false, true, true);
+    body_check(&mut world, anchored, RigidBodyType::Fixed);
+
+    // Delete other anchor 
+    world.run_system(delete_two).expect("Error handling deletion");
+    sched_update.run(&mut world);
+
+    let state = world.get_resource::<PhysicsState>().unwrap();
+    assert_eq!(state.anchor_sources.len(), 0);
+    guarantee(&mut world, anchored, false, false, false, false, true, true);
+    body_check(&mut world, anchored, RigidBodyType::Dynamic);
+
+}
+
+#[test]
+pub fn anchor_deletion_model() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let bricks = vec![
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 0.0, 0.0))
+        ), 
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 1.0, 0.0))
+        )
+    ];
+    let _ = world.spawn_batch(bricks.into_iter());
+
+    world.spawn(
+        (
+            Brick::default(),
+            Physical::anchored(),
+            Position(Vec3::new(0.0, 2.0, 0.0)),
+            Tag1
+        )
+    );
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 2);
+            assert_eq!(m.anchored.len(), 1);
+            assert_eq!(m.set.len(), 2);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+
+    let model_entity = *entities.first().unwrap();
+    body_check(&mut world, model_entity, RigidBodyType::Fixed);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world);
+    body_check(&mut world, model_entity, RigidBodyType::Dynamic);
+
+    world.query::<&AnchoredTo>()
+        .get(&world, model_entity)
+        .expect_err("Model shouldn't have anchored_to component");
+}
+
+#[test]
+pub fn model_leaf_deletion() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 0.0, 0.0)),
+        Tag1,
+    ));
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 1.0, 0.0))
+    ));
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 2.0, 0.0))
+    ));
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 3);
+            assert_eq!(m.anchored.len(), 0);
+            assert_eq!(m.set.len(), 3);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 2);
+            assert_eq!(m.anchored.len(), 0);
+            assert_eq!(m.set.len(), 2);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1); 
+}
+
+#[test]
+pub fn model_cut_deletion() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let brick_one = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 0.0, 0.0)),
+    )).id();
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 1.0, 0.0)),
+        Tag1
+    ));
+    let brick_two = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 2.0, 0.0))
+    )).id();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 3);
+            assert_eq!(m.anchored.len(), 0);
+            assert_eq!(m.set.len(), 3);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, _)| { e })
+        .collect();
+    assert_eq!(entities.len(), 0); 
+
+    guarantee(&mut world, brick_one, false, false, false, false, true, true);
+    guarantee(&mut world, brick_two, false, false, false, false, true, true);
+}
+
+#[test]
+pub fn model_leaf_anchored_deletion() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let bricks = vec![
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 0.0, 0.0))
+        ), 
+        (
+            Brick::default(),
+            Physical::dynamic(),
+            Position(Vec3::new(0.0, 1.0, 0.0))
+        ),
+        (
+            Brick::default(),
+            Physical::anchored(),
+            Position(Vec3::new(0.0, 3.0, 0.0))
+        )
+    ];
+    let _ = world.spawn_batch(bricks);
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 2.0, 0.0)),
+        Tag1
+    ));
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 3);
+            assert_eq!(m.anchored.len(), 1);
+            assert_eq!(m.set.len(), 3);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+    body_check(&mut world, *entities.first().unwrap(), RigidBodyType::Fixed);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 2);
+            assert_eq!(m.anchored.len(), 0);
+            assert_eq!(m.set.len(), 2);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+    body_check(&mut world, *entities.first().unwrap(), RigidBodyType::Dynamic);
+
+
 }
