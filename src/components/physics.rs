@@ -1,6 +1,9 @@
 use bevy_ecs::prelude::*;
 use rapier3d::{prelude::*};
 use std::collections::HashSet;
+use bevy_ecs::query::QueryData;
+
+use crate::components::common::{Position, Rotation, Size};
 
 #[derive(Component, Debug)]
 pub struct Physical {
@@ -27,15 +30,32 @@ impl Physical {
     }
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone, Copy)]
 pub struct BodyHandle(pub RigidBodyHandle);
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone, Copy)]
 pub struct ShapeHandle(pub ColliderHandle);
 
 #[derive(Component, Debug)]
 pub struct AnchoredTo(pub HashSet<Entity>);
 
 #[derive(Component, Debug)]
-pub struct AnchorOf(pub HashSet<Entity>);
+pub struct AnchorSource;
 
+
+#[derive(QueryData)]
+#[query_data(mutable, derive(Debug))]
+pub struct PhysicsQuery {
+    pub entity: Entity, 
+    pub position: &'static Position, 
+    pub rotation: &'static Rotation,  
+    pub size: &'static Size,
+    pub physical: &'static Physical,
+}
+
+#[derive(Event)]
+pub struct PhysicsCleanup {
+    pub entity: Entity,
+    pub shape: Option<ShapeHandle>,
+    pub body: Option<BodyHandle>
+}

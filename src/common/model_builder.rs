@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use bevy_ecs::{prelude::*};
 use petgraph::{graph::UnGraph, matrix_graph::{MatrixGraph, UnMatrix}, prelude::{StableUnGraph, UnGraphMap}, visit::{Bfs, NodeIndexable}};
-use crate::components::{bricks::*, common::{Position, Rotation, Size}, model::*, physics::{AnchorOf, AnchoredTo, Physical}};
+use crate::{components::{bricks::*, common::{Position, Rotation, Size}, model::*, physics::{AnchorSource, AnchoredTo, Physical}}, physics::PhysicsState};
 
 
 /// Function for seeing if bricks snap together 
@@ -194,7 +194,6 @@ pub fn build_models(world: &mut World) {
                     .keys()
                     .cloned()
                     .collect();
-
                 // Given part, given it anchor sources 
                 world
                     .entity_mut(e)
@@ -228,6 +227,10 @@ pub fn build_models(world: &mut World) {
                         }
                     })
                     .collect();
+                
+                if connected_anchors.len() == 0 {
+                    continue 
+                }
 
                 world 
                     .entity_mut(entity)
@@ -252,9 +255,17 @@ pub fn build_models(world: &mut World) {
     }
 
     println!("{:?} {}", anchor_sources, anchor_sources.len());
-    
-    for (e, set) in anchor_sources {
-        world.entity_mut(e).insert(AnchorOf(set));
+
+
+    for (&anchor, _) in &anchor_sources {
+        world 
+            .entity_mut(anchor)
+            .insert(AnchorSource);
     }
 
+    // Save anchor sources 
+    world
+        .get_resource_mut::<PhysicsState>()    
+        .expect("Model Builder can't find physics state")
+        .anchor_sources = anchor_sources;
 }

@@ -55,12 +55,31 @@ pub fn delete_model(commands: &mut Commands, model: &ModelPhysicsQueryItem, indi
 
 pub fn foobar(mut commands: Commands, 
               mut count: Local<u64>, 
-              models: Query<ModelPhysicsQuery>, 
-              mut ew_model: EventWriter<ModelCleanup>,
+              test: Query<(Entity, &AnchorSource)>,
               mut ew_render: EventWriter<RenderCleanup>,
-              indices: Query<&BufferIndex>) 
+              mut ew_physics: EventWriter<PhysicsCleanup>,
+              indices: Query<&BufferIndex>,
+              shapes: Query<&ShapeHandle>,
+              bodies: Query<&BodyHandle>) 
 {
 
+    if *count % 180 == 0 && *count > 180 {
+        for t in test {
+            commands.entity(t.0).despawn();
+
+            let rc = RenderCleanup {buffer_index: *indices.get(t.0).unwrap() };
+            let pc = PhysicsCleanup {
+                entity: t.0,
+                shape: shapes.get(t.0).ok().map(|x| *x),
+                body: bodies.get(t.0).ok().map(|x| *x)
+            };
+            ew_render.write(rc);
+            ew_physics.write(pc);
+            break;
+        }
+    }
+    *count += 1;
+    /* 
     if *count == 180 {
         let mut i = 0;
         for model in models.iter() {
@@ -80,7 +99,22 @@ pub fn foobar(mut commands: Commands,
 
     }
 
-    *count += 1; 
+            bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, 0.0, 0.0)),
+            Size(Vec3::new(20.0, 2.0, 20.0)),
+            Physical::default(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+    *count += 1; */
+    if *count == 100 {
+        commands.spawn((
+            Brick::default(),
+            Position(Vec3::new(0.0, 20.0, 0.0)),
+            Physical::dynamic()
+        ));
+    }
 }
 
 
@@ -121,7 +155,6 @@ impl Game {
 
         world.insert_resource(Events::<ModelCleanup>::default());
         world.insert_resource(Events::<RenderCleanup>::default());
-
         /*
             Game scene updating.
 
@@ -132,26 +165,29 @@ impl Game {
                 SceneTree::init,
                 DebugDraw::init,
                 build_models,
-                PhysicsState::init_scene, 
+                PhysicsState::setup_solo_bricks, 
+                PhysicsState::setup_model_bricks, 
             ).chain()
         );
         update_schedule.add_systems(
             (
                 foobar,
-                PhysicsState::add_bricks,
             ).chain()
         );
 
         post_update_schedule.add_systems((
             PhysicsState::step,  
             PhysicsState::write_debug.after(PhysicsState::step), 
-
-            PhysicsState::process_components.before(PhysicsState::update_components),
-            PhysicsState::update_components.after(PhysicsState::step), 
-
-            SceneTree::remove_bricks.before(SceneTree::add_bricks), 
-            SceneTree::add_bricks.before(SceneTree::update_bricks), 
-            SceneTree::update_bricks,
+            (
+                PhysicsState::add_bricks,
+                PhysicsState::handle_deletion, 
+                PhysicsState::update_bricks
+            ).chain(),
+            (
+                SceneTree::remove_bricks, 
+                SceneTree::add_bricks, 
+                SceneTree::update_bricks
+            ).chain()
         ));
 
         render_schedule.add_systems((
@@ -162,22 +198,51 @@ impl Game {
 
         // Do anything here 
         let mut bricks = Vec::new();
+
+
+        
         bricks.push((
             Brick::default(), 
-            Position::default(),
-            Size(Vec3::new(100.0, 1.0, 100.0)),
+            Position(Vec3::new(0.0, 0.0, 0.0)),
+            Size(Vec3::new(20.0, 2.0, 20.0)),
+            Physical::default(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+        
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(2.0, 10.0, 0.0)),
+            Size(Vec3::new(4.0, 2.0, 4.0)),
             Physical::default(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
 
-        // Test brick attached to anchored brick 
         bricks.push((
             Brick::default(), 
-            Position(Vec3::new(0.0, 1.5, 0.0)),
-            Size(Vec3::new(40.00, 2.0, 40.0)),
+            Position(Vec3::new(-2.0, 10.0, 0.0)),
+            Size(Vec3::new(4.0, 2.0, 4.0)),
+            Physical::default(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, 8.0, 0.0)),
+            Size(Vec3::new(5.0, 2.0, 5.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255])
-        )); 
+        ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, 6.0, 0.0)),
+            Size(Vec3::new(5.0, 2.0, 5.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+
 
 
         let mut make_model = |range: Range<u32>, xz: Vec2| {
@@ -199,11 +264,11 @@ impl Game {
 
 
 
-        make_model(15..25, Vec2::new(0.0, 0.0));
+        //make_model(15..25, Vec2::new(0.0, 0.0));
 
-        make_model(30..40, Vec2::new(5.0, 5.0));
+        //make_model(30..40, Vec2::new(5.0, 5.0));
 
-        make_model(45..50, Vec2::new(5.0, 5.0));
+        //make_model(45..50, Vec2::new(5.0, 5.0));
 
         /* 
         make_model(15..25, Vec2::new(10.0, 0.0));
