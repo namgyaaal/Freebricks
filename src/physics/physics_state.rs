@@ -432,6 +432,7 @@ impl PhysicsState {
             return;
         }
 
+
         let state = state.deref_mut();
         let rigid_bodies = &mut state.rigid_bodies;
         let islands = &mut state.island_manager;
@@ -476,23 +477,23 @@ impl PhysicsState {
                 let mut queue = VecDeque::from([node]);
 
                 subgraph.add_node(node);
+                let mut i = 0;
                 while let Some(node) = queue.pop_front() {
+                    if dirty.contains(&node) {
+                        continue
+                    }
+
+                    i += 1;
+
                     subset.insert(node);
                     dirty.insert(node);
 
                     for (_, other, ()) in model.graph.edges(node) {
                         subgraph.add_node(other);
                         subgraph.add_edge(node, other, ());
-
-                        if !dirty.contains(&other) {
-                            queue.push_back(other); 
-                        }
+                        queue.push_back(other); 
                     }
                 }
-
-                //model.anchored
-
-
                 let subanchored: HashSet<Entity> = {
                     let x: Vec<Entity> = subset
                         .iter()
@@ -510,7 +511,6 @@ impl PhysicsState {
 
             // Pop old model of children since we're replacing them. 
             commands.entity(model_id).remove_children(&Vec::from_iter(model.set.clone()));
-
 
             // TODO, get linvel, angvel 
             let old_body = rigid_bodies.remove(
