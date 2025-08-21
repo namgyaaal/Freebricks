@@ -29,10 +29,11 @@ pub struct PhysicsState {
     impulse_joint_set: ImpulseJointSet,
     multibody_joint_set: MultibodyJointSet, 
     ccd_solver: CCDSolver, 
-    query_pipeline: QueryPipeline,
+    pub query_pipeline: QueryPipeline,
     debug_render: DebugRenderPipeline,
 
-    pub anchor_sources: HashMap<Entity, HashSet<Entity>>
+    pub anchor_sources: HashMap<Entity, HashSet<Entity>>,
+    pub collider_sources: HashMap<ColliderHandle, Entity>
 }
 
 impl State<PhysicsState> for PhysicsState {
@@ -76,7 +77,8 @@ impl PhysicsState {
             query_pipeline: query_pipeline, 
             debug_render: debug_render,
 
-            anchor_sources: HashMap::new()
+            anchor_sources: HashMap::new(),
+            collider_sources: HashMap::new()
         }
     }
 
@@ -219,6 +221,26 @@ impl PhysicsState {
             }
             commands.entity(item.entity).insert(BodyHandle(body_handle));
         }
+    }
+
+    pub fn handle_new_collider(mut state: ResMut<PhysicsState>, mut added: Query<(Entity, &ShapeHandle), Added<ShapeHandle>>) {
+        for (e, handle) in added {
+            state.collider_sources.insert(handle.0, e);
+        }
+    }
+
+    pub fn handle_deleted_collider(mut state: ResMut<PhysicsState>, mut removed: RemovedComponents<ShapeHandle>) {
+        if removed.is_empty() {
+            return 
+        }
+
+        let entities: HashSet<Entity> = {
+            let x = removed.read();
+            HashSet::from_iter(x)
+        };
+
+        state.collider_sources.retain(|_, v| {entities.contains(v)});
+        println!("{:?}", state.collider_sources);
     }
 
     pub fn handle_deletion_two(

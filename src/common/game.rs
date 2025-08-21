@@ -15,12 +15,13 @@ use crate::{
         scene_tree::SceneTree
     }
 };
+use rapier3d::prelude::*;
 
 #[derive(Component)]
 pub struct Tag1;
 
 pub fn foobar(mut commands: Commands, 
-              state: Res<PhysicsState>,
+              mut state: ResMut<PhysicsState>,
               mut count: Local<u64>, 
               test: Query<(Entity, &Tag1)>,
               mut ew_render: EventWriter<RenderCleanup>,
@@ -29,9 +30,56 @@ pub fn foobar(mut commands: Commands,
               shapes: Query<&ShapeHandle>,
               bodies: Query<&BodyHandle>, 
               parents: Query<&ChildOf>,
-              mut models: Query<&mut Model>) 
+              mut models: Query<&mut Model>, 
+              mut explode: Local<Vec<Entity>>) 
 {
+
+    if *count == 181 {
+        for e in &explode {
+            let Ok(handle) = bodies.get(*e) else { continue };
+            let Some(body) = state.rigid_bodies.get_mut(handle.0) else { continue };
+
+            let source = vector![0.0, -10.0, 0.0];
+            let dir = body.translation() - source;
+
+ 
+            body.set_linvel(dir * 30.0, true);
+            
+        }
+
+    }
     if *count == 180 {
+
+
+        let shape = Ball::new(5.0);
+        let pos = Isometry::new(vector![0.0, -10.0, 0.0], vector![0.0, 0.0, 0.0]);
+
+        let filter = QueryFilter::default();
+        
+        let mut handles = Vec::new();
+        state.query_pipeline.intersections_with_shape(&state.rigid_bodies, &state.colliders, &pos, &shape, filter, |handle| {
+            handles.push(handle);
+            true
+        });
+
+        println!("{:?}", handles);
+
+        let mut y = Vec::new();
+        for handle in handles {
+            let Some(e) = state.collider_sources.get(&handle) else { continue };
+            let Ok(parent_id) = parents.get(*e) else { continue };
+            let mut model = models.get_mut(parent_id.0).unwrap();
+
+            model.anchored.remove(e);
+            model.graph.remove_node(*e);
+            model.set.remove(e);
+
+            commands.entity(parent_id.0).remove_children(&[*e]);
+            y.push(*e);
+        }
+        *explode = y;
+
+  
         for (e, _) in test {
 
             let Ok(parent_id) = parents.get(e) else { continue };
@@ -73,15 +121,8 @@ pub fn foobar(mut commands: Commands,
             break;
             */
         }
-    }
+   }
 
-    if *count == 181{
-        println!("{}", state.rigid_bodies.len());
-    }
-
-    if *count == 182{
-        println!("{}", state.rigid_bodies.len());
-    }
 
     *count += 1;
     /* 
@@ -189,6 +230,8 @@ impl Game {
                 PhysicsState::handle_deletion_two,
                 PhysicsState::handle_pop, 
                 PhysicsState::handle_model_mutations,
+                PhysicsState::handle_new_collider, 
+                PhysicsState::handle_deleted_collider,
                 PhysicsState::update_bricks
             ).chain(),
             (
@@ -211,19 +254,42 @@ impl Game {
         bricks.push((
             Brick::default(), 
             Position(Vec3::new(0.0, -20.0, 0.0)),
-            Size(Vec3::new(20.0, 2.0, 20.0)),
+            Size(Vec3::new(50.0, 2.0, 50.0)),
             Physical::default(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
 
-        world.spawn((
+        bricks.push((
             Brick::default(),
-            Position(Vec3::new(4.0, -16.0, 0.0)),
+            Position(Vec3::new(5.0, -16.0, 5.0)),
             Size(Vec3::new(1.0, 6.0, 1.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255]),
-            Tag1
         ));
+        bricks.push((
+            Brick::default(),
+            Position(Vec3::new(-5.0, -16.0, -5.0)),
+            Size(Vec3::new(1.0, 6.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+        ));
+
+        bricks.push((
+            Brick::default(),
+            Position(Vec3::new(-5.0, -16.0, 5.0)),
+            Size(Vec3::new(1.0, 6.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+        ));
+        bricks.push((
+            Brick::default(),
+            Position(Vec3::new(5.0, -16.0, -5.0)),
+            Size(Vec3::new(1.0, 6.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+        ));
+
+
         /* 
         world.spawn((
             Brick::default(),
@@ -277,7 +343,6 @@ impl Game {
             Size(Vec3::new(12.0, 2.0, 12.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255]),
-            Tag1
         ));
 
         bricks.push((
