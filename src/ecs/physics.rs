@@ -3,7 +3,7 @@ use rapier3d::{prelude::*};
 use std::collections::HashSet;
 use bevy_ecs::query::QueryData;
 
-use crate::components::common::{Position, Rotation, Size};
+use crate::ecs::common::{Position, Rotation, Size};
 
 #[derive(Component, Debug)]
 pub struct Physical {
@@ -57,5 +57,6 @@ pub struct PhysicsQuery {
 pub struct PhysicsCleanup {
     pub entity: Entity,
     pub shape: Option<ShapeHandle>,
-    pub body: Option<BodyHandle>
+    pub body: Option<BodyHandle>,
+    pub parent: Option<Entity>
 }

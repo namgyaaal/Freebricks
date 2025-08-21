@@ -5,10 +5,10 @@ use anyhow::Result;
 use tracing::{error};
 use glam::{Vec2, Vec3};
 use crate::{
-    common::{asset_cache::AssetCache, model_builder::*, state::State}, 
-    components::{bricks::{Brick}, 
+    common::{asset_cache::AssetCache, model_graph::*, state::State}, 
+    ecs::{bricks::{Brick, BrickCleanup}, 
     common::*, 
-    model::{ModelCleanup, ModelPhysicsQuery, ModelEnd, ModelPhysicsQueryItem}, 
+    model::{ModelCleanup}, 
     physics::*, render::{BufferIndex, RenderCleanup}}, 
     physics::physics_state::PhysicsState, 
     render::{
@@ -19,8 +19,10 @@ use crate::{
     }
 };
 
+#[derive(Component)]
+pub struct Tag1;
 
-
+/* 
 pub fn destructure_model(commands: &mut Commands, model: &ModelPhysicsQueryItem) -> ModelCleanup {
     let mut children = Vec::new();
     for &child in model.children {
@@ -52,26 +54,29 @@ pub fn delete_model(commands: &mut Commands, model: &ModelPhysicsQueryItem, indi
 
     (cleanup, render_cleanup)
 }
+*/
 
 pub fn foobar(mut commands: Commands, 
               mut count: Local<u64>, 
-              test: Query<(Entity, &AnchorSource)>,
+              test: Query<(Entity, &Tag1)>,
               mut ew_render: EventWriter<RenderCleanup>,
               mut ew_physics: EventWriter<PhysicsCleanup>,
               indices: Query<&BufferIndex>,
               shapes: Query<&ShapeHandle>,
-              bodies: Query<&BodyHandle>) 
+              bodies: Query<&BodyHandle>, 
+              parent: Query<&ChildOf>) 
 {
-
-    if *count % 180 == 0 && *count > 180 {
+    if *count == 180 {
         for t in test {
             commands.entity(t.0).despawn();
+
 
             let rc = RenderCleanup {buffer_index: *indices.get(t.0).unwrap() };
             let pc = PhysicsCleanup {
                 entity: t.0,
                 shape: shapes.get(t.0).ok().map(|x| *x),
-                body: bodies.get(t.0).ok().map(|x| *x)
+                body: bodies.get(t.0).ok().map(|x| *x),
+                parent: parent.get(t.0).ok().map(|x| x.0)
             };
             ew_render.write(rc);
             ew_physics.write(pc);
@@ -108,13 +113,13 @@ pub fn foobar(mut commands: Commands,
         ));
 
     *count += 1; */
-    if *count == 100 {
-        commands.spawn((
-            Brick::default(),
-            Position(Vec3::new(0.0, 20.0, 0.0)),
-            Physical::dynamic()
-        ));
-    }
+    //if *count == 100 {
+    //    commands.spawn((
+    //        Brick::default(),
+    //        Position(Vec3::new(0.0, 20.0, 0.0)),
+    //        Physical::dynamic()
+    //    ));
+    //}
 }
 
 
@@ -153,6 +158,7 @@ impl Game {
         RenderState::consume(&mut world, render_state);
         PhysicsState::consume(&mut world, physics_state);
 
+        world.insert_resource(Events::<BrickCleanup>::default());
         world.insert_resource(Events::<ModelCleanup>::default());
         world.insert_resource(Events::<RenderCleanup>::default());
         /*
@@ -176,11 +182,13 @@ impl Game {
         );
 
         post_update_schedule.add_systems((
-            PhysicsState::step,  
-            PhysicsState::write_debug.after(PhysicsState::step), 
-            (
+            (   
+                PhysicsState::step,
+                PhysicsState::write_debug,
                 PhysicsState::add_bricks,
                 PhysicsState::handle_deletion, 
+                PhysicsState::handle_deletion_two,
+                PhysicsState::handle_model_mutations,
                 PhysicsState::update_bricks
             ).chain(),
             (
@@ -200,10 +208,9 @@ impl Game {
         let mut bricks = Vec::new();
 
 
-        
         bricks.push((
             Brick::default(), 
-            Position(Vec3::new(0.0, 0.0, 0.0)),
+            Position(Vec3::new(0.0, -20.0, 0.0)),
             Size(Vec3::new(20.0, 2.0, 20.0)),
             Physical::default(),
             Color([rand::random(), rand::random(), rand::random(), 255])
@@ -211,45 +218,50 @@ impl Game {
         
         bricks.push((
             Brick::default(), 
-            Position(Vec3::new(2.0, 10.0, 0.0)),
-            Size(Vec3::new(4.0, 2.0, 4.0)),
-            Physical::default(),
-            Color([rand::random(), rand::random(), rand::random(), 255])
-        ));
-
-        bricks.push((
-            Brick::default(), 
-            Position(Vec3::new(-2.0, 10.0, 0.0)),
-            Size(Vec3::new(4.0, 2.0, 4.0)),
-            Physical::default(),
-            Color([rand::random(), rand::random(), rand::random(), 255])
-        ));
-
-
-        bricks.push((
-            Brick::default(), 
-            Position(Vec3::new(0.0, 8.0, 0.0)),
-            Size(Vec3::new(5.0, 2.0, 5.0)),
+            Position(Vec3::new(2.0, 5.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
 
         bricks.push((
             Brick::default(), 
-            Position(Vec3::new(0.0, 6.0, 0.0)),
-            Size(Vec3::new(5.0, 2.0, 5.0)),
+            Position(Vec3::new(2.0, 6.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
 
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(2.0, 8.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(2.0, 9.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+       
+
+        world.spawn((
+            Brick::default(), 
+            Position(Vec3::new(2.0, 7.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Tag1
+        ));
 
 
-
-        let mut make_model = |range: Range<u32>, xz: Vec2| {
+        let mut _make_model = |range: Range<u32>, xz: Vec2| {
             for i in range {
                 let y = i as f32; 
-
-
 
                 bricks.push((
                     Brick::default(),

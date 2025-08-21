@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{collections::{HashMap, HashSet, VecDeque}};
 
 use bevy_ecs::{prelude::*};
-use petgraph::{graph::UnGraph, matrix_graph::{MatrixGraph, UnMatrix}, prelude::{StableUnGraph, UnGraphMap}, visit::{Bfs, NodeIndexable}};
-use crate::{components::{bricks::*, common::{Position, Rotation, Size}, model::*, physics::{AnchorSource, AnchoredTo, Physical}}, physics::PhysicsState};
+use petgraph::{matrix_graph::{UnMatrix}, prelude::{UnGraphMap}, visit::{NodeIndexable}};
+use crate::{ecs::{bricks::*, common::{Position, Rotation, Size}, model::*, physics::{AnchorSource, AnchoredTo, Physical}}, physics::PhysicsState};
 
 
 /// Function for seeing if bricks snap together 
@@ -269,3 +269,4 @@ pub fn build_models(world: &mut World) {
         .expect("Model Builder can't find physics state")
         .anchor_sources = anchor_sources;
 }
+

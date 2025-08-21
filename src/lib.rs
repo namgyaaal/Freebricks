@@ -1,4 +1,4 @@
-pub mod components;
+pub mod ecs;
 pub mod render; 
 pub mod common;
 pub mod application;

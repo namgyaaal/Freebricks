@@ -1,5 +1,5 @@
 use bevy_ecs::{prelude::*};
-use freebricks::{common::{model_builder::build_models, state::State}, components::{bricks::*, common::{Position, Size}, model::{Model}, physics::{AnchorSource, AnchoredTo, BodyHandle, Physical, PhysicsCleanup, ShapeHandle}}, physics::PhysicsState};
+use freebricks::{common::{model_graph::build_models, state::State}, ecs::{bricks::*, common::{Position, Size}, model::{Model}, physics::{AnchorSource, AnchoredTo, BodyHandle, Physical, PhysicsCleanup, ShapeHandle}}, physics::PhysicsState};
 use glam::Vec3;
 use rapier3d::prelude::RigidBodyType;
 
@@ -35,6 +35,8 @@ fn util_setup() -> (World, Schedule, Schedule){
         PhysicsState::step, 
         PhysicsState::add_bricks, 
         PhysicsState::handle_deletion, 
+        PhysicsState::handle_deletion_two, 
+        PhysicsState::handle_model_mutations,
         PhysicsState::update_bricks
     ).chain());
 
@@ -107,7 +109,8 @@ fn handle_deletion<T: Component>(
         mut ew: EventWriter<PhysicsCleanup>, 
         query: Query<(Entity, &T)>,
         bodies: Query<&BodyHandle>,
-        shapes: Query<&ShapeHandle>) {
+        shapes: Query<&ShapeHandle>,
+        parent: Query<&ChildOf>) {
     let (e, _) = query.iter().next().expect("Couldn't get anchored brick");
 
     commands.entity(e).despawn();
@@ -117,6 +120,7 @@ fn handle_deletion<T: Component>(
             entity: e,
             body: bodies.get(e).ok().map(|x| *x),
             shape: shapes.get(e).ok().map(|x| *x),
+            parent: parent.get(e).ok().map(|x| x.0),
         }
     };
     ew.write(pc);
@@ -602,6 +606,11 @@ pub fn model_leaf_deletion() {
 pub fn model_cut_deletion() {
     let (mut world, mut sched_start, mut sched_update) = util_setup();
 
+    let brick_zero= world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, -1.0, 0.0))
+    )).id();
     let brick_one = world.spawn((
         Brick::default(),
         Physical::dynamic(),
@@ -618,6 +627,11 @@ pub fn model_cut_deletion() {
         Physical::dynamic(),
         Position(Vec3::new(0.0, 2.0, 0.0))
     )).id();
+    let brick_three = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 3.0, 0.0))
+    )).id();
 
     sched_start.run(&mut world);
     sched_update.run(&mut world);
@@ -625,9 +639,9 @@ pub fn model_cut_deletion() {
     let entities: Vec<Entity> = get_models(&mut world) 
         .iter() 
         .map(|&(e, m)| {
-            assert_eq!(m.graph.node_count(), 3);
+            assert_eq!(m.graph.node_count(), 5);
             assert_eq!(m.anchored.len(), 0);
-            assert_eq!(m.set.len(), 3);
+            assert_eq!(m.set.len(), 5);
             e
         })
         .collect();
@@ -642,10 +656,7 @@ pub fn model_cut_deletion() {
         .iter() 
         .map(|&(e, _)| { e })
         .collect();
-    assert_eq!(entities.len(), 0); 
-
-    guarantee(&mut world, brick_one, false, false, false, false, true, true);
-    guarantee(&mut world, brick_two, false, false, false, false, true, true);
+    assert_eq!(entities.len(), 2); 
 }
 
 #[test]

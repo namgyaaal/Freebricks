@@ -1,6 +1,6 @@
 use bevy_ecs::{prelude::*, query::QueryFilter};
 use bevy_ecs::query::QueryData;
-use crate::components::{common::*, render::*, physics::*};
+use crate::ecs::{common::*, render::*, physics::*};
 
 
 #[derive(Debug, PartialEq, Eq)]
@@ -135,3 +135,9 @@ pub struct BrickFilterUpdate {
     Event stuff
 
 */
+
+#[derive(Event)]
+pub struct BrickCleanup {
+    pub entity: Entity,
+    pub parent: Option<Entity>
+}

@@ -9,7 +9,7 @@ use bevy_ecs::prelude::*;
 use wgpu::util::DeviceExt;
 use crate::{
     common::asset_cache::AssetCache,
-    components::{bricks::*, render::RenderCleanup}, 
+    ecs::{bricks::*, render::RenderCleanup}, 
     render::{bricks::*, camera::*, render_state::{RenderPassInfo, RenderState}, texture::*}
 };
 

@@ -2,7 +2,7 @@
     Information about bricks relevant to the rendering engine. 
 */
 use bytemuck::{Pod, Zeroable};
-use crate::components::{
+use crate::ecs::{
     bricks::Brick, 
     common::*,
 };

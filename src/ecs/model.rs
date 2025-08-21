@@ -1,19 +1,14 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
-use petgraph::matrix_graph::UnMatrix;
 use petgraph::prelude::UnGraphMap;
-use rapier3d::prelude::RigidBodyHandle;
+use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 use core::fmt;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::fmt::Debug;
 
-use crate::components::physics::BodyHandle;
+use crate::ecs::physics::{BodyHandle};
 
-#[derive(Eq, PartialEq)]
-pub enum ModelEnd {
-    Destructure, 
-    Delete, 
-}
+
 
 #[derive(Component)]
 pub struct Model {
@@ -40,6 +35,15 @@ pub struct ModelQuery {
 }
 
 #[derive(QueryData)]
+#[query_data(mutable, derive(Debug))]
+pub struct ModelUpdateQuery {
+    pub entity: Entity, 
+    pub model: &'static mut Model,
+    pub children: &'static mut Children,
+}
+
+
+#[derive(QueryData)]
 #[query_data(derive(Debug))]
 pub struct ModelPhysicsQuery {
     pub entity: Entity, 
@@ -49,9 +53,18 @@ pub struct ModelPhysicsQuery {
 }
 
 
+#[derive(Eq, PartialEq)]
+pub enum ModelEnd {
+    Split, 
+    Destructure, 
+    Delete, 
+}
+
 #[derive(Event)]
 pub struct ModelCleanup {
     pub handle: RigidBodyHandle,
-    pub children: Vec<u32>,
+    pub children: Option<Vec<u32>>,
+    pub submodels: Option<Vec<Entity>>,  // Split 
+    pub old_nodes: Option<Vec<ColliderHandle>>, // Split 
     pub mode: ModelEnd
 }
