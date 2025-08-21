@@ -234,6 +234,8 @@ impl PhysicsState {
         if deleted.is_empty() {
             return;
         }
+
+
         let state = state.deref_mut(); 
         let rigid_bodies = &mut state.rigid_bodies;
         let islands = &mut state.island_manager;
@@ -245,20 +247,15 @@ impl PhysicsState {
         for deletion in deleted {
             let model_id = deletion.parent.unwrap();
             let shape_handle = deletion.shape.unwrap();
-            let (mut model, body_handle) = models
+            let (mut model, _) = models
                 .get_mut(model_id)
                 .expect("Couldn't get model and handle");
 
             colliders.remove(shape_handle.0, islands, rigid_bodies, false);
 
-
-            let mut body = rigid_bodies.get_mut(body_handle.0).expect("Expected rigid body");
-
             model.anchored.remove(&deletion.entity);
             model.graph.remove_node(deletion.entity);
             model.set.remove(&deletion.entity);
-
-
         }
        
     }
@@ -346,6 +343,7 @@ impl PhysicsState {
         mut commands: Commands, 
         mut state: ResMut<PhysicsState>,
         mut popped_bricks: RemovedComponents<ChildOf>,
+        mut replaced: Query<&ChildOf>,
         mut shapes: Query<&mut ShapeHandle>) 
     {
         if popped_bricks.is_empty() {
@@ -360,8 +358,13 @@ impl PhysicsState {
         let popped_bricks: Vec<Entity> = popped_bricks
             .read()
             .into_iter()
-            .filter_map(|x| {
+            .filter_map(|x| { 
+                // If entity exists 
                 commands.get_entity(x).ok().map(|_| {x})
+            })
+            .filter(|&x| {      
+                // If entity has a new parent 
+                !replaced.get(x).is_ok()
             })
             .collect();
 
@@ -418,9 +421,12 @@ impl PhysicsState {
             // Do BFS to see if it's fully connected or notA
             let mut count = 0;
 
-            let mut bfs = Bfs::new(&model.graph, model.graph.from_index(0));
-            while let Some(_) = bfs.next(&model.graph) {
-                count += 1; 
+            if model.graph.node_count() != 0 {
+    
+                let mut bfs = Bfs::new(&model.graph, model.graph.from_index(0));
+                while let Some(_) = bfs.next(&model.graph) {
+                    count += 1; 
+                }
             }
             // If no subgraphs, continue 
             if count == model.graph.node_count() {

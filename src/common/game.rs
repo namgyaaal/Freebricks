@@ -19,41 +19,8 @@ use crate::{
 #[derive(Component)]
 pub struct Tag1;
 
-/* 
-pub fn destructure_model(commands: &mut Commands, model: &ModelPhysicsQueryItem) -> ModelCleanup {
-    let mut children = Vec::new();
-    for &child in model.children {
-        children.push(child.index());
-    }
-
-    let mut ec = commands.entity(model.entity);
-
-    ec.remove_children(model.children);
-    ec.despawn();
-    ModelCleanup { handle: model.body.0, children: children, mode: ModelEnd::Destructure }
-}
-
-pub fn delete_model(commands: &mut Commands, model: &ModelPhysicsQueryItem, indices: Query<&BufferIndex>)
- -> (ModelCleanup, Vec<RenderCleanup>) {
-    let mut render_cleanup= Vec::new();
-    let mut children = Vec::new();
-    for &child in model.children {
-        children.push(child.index());
-        if let Ok(index) = indices.get(child) {
-            render_cleanup.push(RenderCleanup {buffer_index: *index});
-        }
-    }
-
-    let mut ec = commands.entity(model.entity);
-    ec.despawn();
-
-    let cleanup = ModelCleanup { handle: model.body.0, children: children, mode: ModelEnd::Delete };
-
-    (cleanup, render_cleanup)
-}
-*/
-
 pub fn foobar(mut commands: Commands, 
+              state: Res<PhysicsState>,
               mut count: Local<u64>, 
               test: Query<(Entity, &Tag1)>,
               mut ew_render: EventWriter<RenderCleanup>,
@@ -67,15 +34,14 @@ pub fn foobar(mut commands: Commands,
     if *count == 180 {
         for (e, _) in test {
 
-            let parent_id = parents.get(e).unwrap().0;
-            let mut model = models.get_mut(parent_id).unwrap();
-
+            let Ok(parent_id) = parents.get(e) else { continue };
+            let mut model = models.get_mut(parent_id.0).unwrap();
             
             model.anchored.remove(&e);
             model.graph.remove_node(e);
             model.set.remove(&e);
 
-            commands.entity(parent_id).remove_children(&[e]);
+            commands.entity(parent_id.0).remove_children(&[e]);
 
             /* 
             commands.entity(e).despawn();
@@ -108,6 +74,15 @@ pub fn foobar(mut commands: Commands,
             */
         }
     }
+
+    if *count == 181{
+        println!("{}", state.rigid_bodies.len());
+    }
+
+    if *count == 182{
+        println!("{}", state.rigid_bodies.len());
+    }
+
     *count += 1;
     /* 
     if *count == 180 {
@@ -240,7 +215,117 @@ impl Game {
             Physical::default(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
-        
+
+        world.spawn((
+            Brick::default(),
+            Position(Vec3::new(4.0, -16.0, 0.0)),
+            Size(Vec3::new(1.0, 6.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Tag1
+        ));
+        /* 
+        world.spawn((
+            Brick::default(),
+            Position(Vec3::new(0.0, -16.0, 0.0)),
+            Size(Vec3::new(1.0, 6.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Tag1
+        ));
+        */
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, -12.0, 0.0)),
+            Size(Vec3::new(12.0, 2.0, 12.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(4.0, -7.0, 4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+        ));
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(-4.0, -7.0, -4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(-4.0, -7.0, 4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(4.0, -7.0, -4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+        world.spawn((
+            Brick::default(), 
+            Position(Vec3::new(0.0, -2.0, 0.0)),
+            Size(Vec3::new(12.0, 2.0, 12.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Tag1
+        ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, -6.0, 0.0)),
+            Size(Vec3::new(4.0, 2.0, 4.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(4.0, 3.0, 4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(-4.0, 3.0, -4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(-4.0, 3.0, 4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(4.0, 3.0, -4.0)),
+            Size(Vec3::new(1.0, 8.0, 1.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(0.0, 8.0, 0.0)),
+            Size(Vec3::new(12.0, 2.0, 12.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
         /* 
         bricks.push((
             Brick::default(), 
@@ -250,6 +335,7 @@ impl Game {
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
         */
+        /* 
         bricks.push((
             Brick::default(), 
             Position(Vec3::new(2.0, 6.0, 0.0)),
@@ -292,7 +378,7 @@ impl Game {
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
        
-
+        */
 
 
         let mut _make_model = |range: Range<u32>, xz: Vec2| {

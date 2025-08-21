@@ -1,7 +1,6 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use petgraph::prelude::UnGraphMap;
-use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 use core::fmt;
 use std::collections::{HashSet};
 use std::fmt::Debug;
