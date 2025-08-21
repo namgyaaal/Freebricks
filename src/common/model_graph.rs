@@ -254,9 +254,6 @@ pub fn build_models(world: &mut World) {
         }
     }
 
-    println!("{:?} {}", anchor_sources, anchor_sources.len());
-
-
     for (&anchor, _) in &anchor_sources {
         world 
             .entity_mut(anchor)

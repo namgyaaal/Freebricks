@@ -603,15 +603,15 @@ pub fn model_leaf_deletion() {
 }
 
 #[test]
-pub fn model_cut_deletion() {
+pub fn model_cut_deletion_5() {
     let (mut world, mut sched_start, mut sched_update) = util_setup();
 
-    let brick_zero= world.spawn((
+    let _brick_zero= world.spawn((
         Brick::default(),
         Physical::dynamic(),
         Position(Vec3::new(0.0, -1.0, 0.0))
     )).id();
-    let brick_one = world.spawn((
+    let _brick_one = world.spawn((
         Brick::default(),
         Physical::dynamic(),
         Position(Vec3::new(0.0, 0.0, 0.0)),
@@ -622,12 +622,12 @@ pub fn model_cut_deletion() {
         Position(Vec3::new(0.0, 1.0, 0.0)),
         Tag1
     ));
-    let brick_two = world.spawn((
+    let _brick_two = world.spawn((
         Brick::default(),
         Physical::dynamic(),
         Position(Vec3::new(0.0, 2.0, 0.0))
     )).id();
-    let brick_three = world.spawn((
+    let _brick_three = world.spawn((
         Brick::default(),
         Physical::dynamic(),
         Position(Vec3::new(0.0, 3.0, 0.0))
@@ -657,6 +657,53 @@ pub fn model_cut_deletion() {
         .map(|&(e, _)| { e })
         .collect();
     assert_eq!(entities.len(), 2); 
+}
+
+#[test]
+pub fn model_cut_deletion_3() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let brick_one = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 0.0, 0.0)),
+    )).id();
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 1.0, 0.0)),
+        Tag1
+    ));
+    let brick_two = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 2.0, 0.0))
+    )).id();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 3);
+            assert_eq!(m.anchored.len(), 0);
+            assert_eq!(m.set.len(), 3);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world);
+
+    guarantee(&mut world, brick_one, false, false, false, false, true, true);
+    guarantee(&mut world, brick_two, false, false, false, false, true, true);
+    assert!(world.query::<&Model>().iter(&world).next().is_none());
+    body_check(&mut world, brick_one, RigidBodyType::Dynamic);
+    body_check(&mut world, brick_two, RigidBodyType::Dynamic);
 }
 
 #[test]
@@ -720,6 +767,61 @@ pub fn model_leaf_anchored_deletion() {
 
     assert_eq!(entities.len(), 1);
     body_check(&mut world, *entities.first().unwrap(), RigidBodyType::Dynamic);
+}
+
+#[test]
+pub fn model_cut_anchored_deletion() {
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
 
 
+    let brick_one = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 0.0, 0.0)),
+    )).id();
+
+    let brick_two = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 2.0, 0.0))
+    )).id();
+
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::anchored(),
+        Position(Vec3::new(0.0, 3.0, 0.0))
+    )).id();
+
+    let _ = world.spawn((
+        Brick::default(),
+        Physical::dynamic(),
+        Position(Vec3::new(0.0, 1.0, 0.0)),
+        Tag1
+    ));
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let entities: Vec<Entity> = get_models(&mut world) 
+        .iter() 
+        .map(|&(e, m)| {
+            assert_eq!(m.graph.node_count(), 3);
+            assert_eq!(m.anchored.len(), 1);
+            assert_eq!(m.set.len(), 3);
+            e
+        })
+        .collect();
+
+    assert_eq!(entities.len(), 1);
+    body_check(&mut world, *entities.first().unwrap(), RigidBodyType::Fixed);
+
+    let delete_one = world.register_system(handle_deletion::<Tag1>);
+    world.run_system(delete_one).expect("Error handling deletion");
+    sched_update.run(&mut world);
+
+    guarantee(&mut world, brick_one, false, false, false, false, true, true);
+    guarantee(&mut world, brick_two, true, false, false, false, true, true);
+    assert!(world.query::<&Model>().iter(&world).next().is_none());
+    body_check(&mut world, brick_one, RigidBodyType::Dynamic);
+    body_check(&mut world, brick_two, RigidBodyType::Fixed);
 }

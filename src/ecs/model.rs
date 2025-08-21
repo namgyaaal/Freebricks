@@ -60,11 +60,3 @@ pub enum ModelEnd {
     Delete, 
 }
 
-#[derive(Event)]
-pub struct ModelCleanup {
-    pub handle: RigidBodyHandle,
-    pub children: Option<Vec<u32>>,
-    pub submodels: Option<Vec<Entity>>,  // Split 
-    pub old_nodes: Option<Vec<ColliderHandle>>, // Split 
-    pub mode: ModelEnd
-}

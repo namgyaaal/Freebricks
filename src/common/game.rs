@@ -6,10 +6,7 @@ use tracing::{error};
 use glam::{Vec2, Vec3};
 use crate::{
     common::{asset_cache::AssetCache, model_graph::*, state::State}, 
-    ecs::{bricks::{Brick, BrickCleanup}, 
-    common::*, 
-    model::{ModelCleanup}, 
-    physics::*, render::{BufferIndex, RenderCleanup}}, 
+    ecs::{bricks::{Brick, BrickCleanup}, common::*, model::Model, physics::*, render::{BufferIndex, RenderCleanup}}, 
     physics::physics_state::PhysicsState, 
     render::{
         camera::Camera, 
@@ -64,10 +61,37 @@ pub fn foobar(mut commands: Commands,
               indices: Query<&BufferIndex>,
               shapes: Query<&ShapeHandle>,
               bodies: Query<&BodyHandle>, 
-              parent: Query<&ChildOf>) 
+              parents: Query<&ChildOf>,
+              mut models: Query<&mut Model>) 
 {
     if *count == 180 {
-        for t in test {
+        for (e, _) in test {
+
+            let parent_id = parents.get(e).unwrap().0;
+            let mut model = models.get_mut(parent_id).unwrap();
+
+            
+            model.anchored.remove(&e);
+            model.graph.remove_node(e);
+            model.set.remove(&e);
+
+            commands.entity(parent_id).remove_children(&[e]);
+
+            /* 
+            commands.entity(e).despawn();
+
+            let rc = RenderCleanup {buffer_index: *indices.get(e).unwrap() };
+            let pc = PhysicsCleanup {
+                entity: e,
+                shape: shapes.get(e).ok().map(|x| *x),
+                body: bodies.get(e).ok().map(|x| *x),
+                parent: parents.get(e).ok().map(|x| x.0)
+            };
+            ew_render.write(rc);
+            ew_physics.write(pc);       
+            */
+
+            /* 
             commands.entity(t.0).despawn();
 
 
@@ -81,6 +105,7 @@ pub fn foobar(mut commands: Commands,
             ew_render.write(rc);
             ew_physics.write(pc);
             break;
+            */
         }
     }
     *count += 1;
@@ -159,7 +184,6 @@ impl Game {
         PhysicsState::consume(&mut world, physics_state);
 
         world.insert_resource(Events::<BrickCleanup>::default());
-        world.insert_resource(Events::<ModelCleanup>::default());
         world.insert_resource(Events::<RenderCleanup>::default());
         /*
             Game scene updating.
@@ -188,6 +212,7 @@ impl Game {
                 PhysicsState::add_bricks,
                 PhysicsState::handle_deletion, 
                 PhysicsState::handle_deletion_two,
+                PhysicsState::handle_pop, 
                 PhysicsState::handle_model_mutations,
                 PhysicsState::update_bricks
             ).chain(),
@@ -216,6 +241,7 @@ impl Game {
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
         
+        /* 
         bricks.push((
             Brick::default(), 
             Position(Vec3::new(2.0, 5.0, 0.0)),
@@ -223,10 +249,18 @@ impl Game {
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
-
+        */
         bricks.push((
             Brick::default(), 
             Position(Vec3::new(2.0, 6.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
+            Physical::dynamic(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(2.0, 7.0, 0.0)),
             Size(Vec3::new(4.0, 1.0, 4.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255])
@@ -239,24 +273,26 @@ impl Game {
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255])
         ));
-
-        bricks.push((
-            Brick::default(), 
-            Position(Vec3::new(2.0, 9.0, 0.0)),
-            Size(Vec3::new(4.0, 1.0, 4.0)),
-            Physical::dynamic(),
-            Color([rand::random(), rand::random(), rand::random(), 255])
-        ));
        
 
         world.spawn((
             Brick::default(), 
-            Position(Vec3::new(2.0, 7.0, 0.0)),
+            Position(Vec3::new(2.0, 9.0, 0.0)),
             Size(Vec3::new(4.0, 1.0, 4.0)),
             Physical::dynamic(),
             Color([rand::random(), rand::random(), rand::random(), 255]),
             Tag1
         ));
+
+        bricks.push((
+            Brick::default(), 
+            Position(Vec3::new(2.0, 10.0, 0.0)),
+            Size(Vec3::new(4.0, 1.0, 4.0)),
+            Physical::anchored(),
+            Color([rand::random(), rand::random(), rand::random(), 255])
+        ));
+       
+
 
 
         let mut _make_model = |range: Range<u32>, xz: Vec2| {

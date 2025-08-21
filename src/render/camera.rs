@@ -46,8 +46,8 @@ impl Camera {
         let config = &render_state.config;
 
         let view = Mat4::look_at_rh(
-            Vec3::new(0.0, -5.0, 40.0),
-            Vec3::new(0.0, -15.0, 0.0),
+            Vec3::new(0.0, 0.0, 50.0),
+            Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(0.0, 1.0, 0.0),
         );
 
@@ -61,7 +61,7 @@ impl Camera {
 
         let uniform = CameraUniform {
             view_proj: (mat).to_cols_array_2d(), 
-            view_pos: [0.0, -15.0, 40.0, 0.0],
+            view_pos: [0.0, 0.0, 50.0, 0.0],
         };
 
         let camera_buffer = device.create_buffer_init(
