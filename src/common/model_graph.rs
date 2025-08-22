@@ -18,10 +18,10 @@ use petgraph::{matrix_graph::UnMatrix, prelude::UnGraphMap, visit::NodeIndexable
 fn touch_check(
     pos_a: &Position,
     size_a: &Size,
-    brick_a: &StudInfo,
+    part_a: &StudInfo,
     pos_b: &Position,
     size_b: &Size,
-    brick_b: &StudInfo,
+    part_b: &StudInfo,
 ) -> bool {
     let a_min = pos_a.0 - (size_a.0 / 2.0);
     let a_max = pos_a.0 + (size_a.0 / 2.0);
@@ -44,12 +44,12 @@ fn touch_check(
     // lol this is a mess
 
     let a_b_snap = (f32::abs(a_min.y - b_max.y) < f32::EPSILON)
-        && ((brick_b.bottom == StudType::Inlet && brick_a.top == StudType::Outlet)
-            || (brick_b.bottom == StudType::Outlet && brick_a.top == StudType::Inlet));
+        && ((part_b.bottom == StudType::Inlet && part_a.top == StudType::Outlet)
+            || (part_b.bottom == StudType::Outlet && part_a.top == StudType::Inlet));
 
     let b_a_snap = (f32::abs(a_max.y - b_min.y) < f32::EPSILON)
-        && ((brick_a.bottom == StudType::Inlet && brick_b.top == StudType::Outlet)
-            || (brick_a.bottom == StudType::Outlet && brick_b.top == StudType::Inlet));
+        && ((part_a.bottom == StudType::Inlet && part_b.top == StudType::Outlet)
+            || (part_a.bottom == StudType::Outlet && part_b.top == StudType::Inlet));
     // Need some check if studs actually align
 
     return a_b_snap || b_a_snap;
@@ -61,61 +61,53 @@ pub fn build_models(
     mut state: ResMut<PhysicsState>,
     parts: Query<QPartWorldInit>,
 ) {
-    let mut brick_info = Vec::new();
+    let part_info: Vec<_> = parts
+        .iter()
+        .filter_map(|part| {
+            /*
+               Would be an enhancement to allow for rotated bricks, but for now don't handle
+               Just requires clever mathematics (getting centroids and reverse rotation/translating)
+            */
+            if !part.rotation.is_near_identity() {
+                return None;
+            } else {
+                return Some((
+                    part.entity,
+                    part.position,
+                    part.size,
+                    part.studs,
+                    part.physical,
+                ));
+            }
+        })
+        .collect();
 
-    for part in parts.iter() {
-        //for (entity, position, rotation, size, brick, physical) in bricks.iter(&world) {
-        /*
-           It would be an enhancement to allow for rotated bricks, I think it would just require some clever mathematics
-               (finding centroids and doing reverse transformations+rotations) to figure if they snap together
-
-           For now we don't handle this, I am sure this will come back to screw me up in the future.
-        */
-        if !part.rotation.is_near_identity() {
-            continue;
-        }
-        brick_info.push(
-            (
-                part.entity,
-                part.position,
-                part.size,
-                part.studs,
-                part.physical,
-            ), //(entity, position, size, brick, physical)
-        )
-    }
     /*
 
-       Seems like this only supports 2^16 nodes for now.
+       Seems like this only supports 2^16 nodes for now. OK
 
        bool represents anchored edge
     */
-    let mut graph: UnMatrix<Entity, bool> = UnMatrix::with_capacity(brick_info.len());
-    let nodes: Vec<_> = brick_info.iter().map(|x| graph.add_node(x.0)).collect();
+    let mut graph: UnMatrix<Entity, bool> = UnMatrix::with_capacity(part_info.len());
+    let nodes: Vec<_> = part_info.iter().map(|x| graph.add_node(x.0)).collect();
 
     // This goes across entire scene and connects edges where bricks snap together
     // O(n^2) for now, could use BVH down the line.
-    for i in 0..brick_info.len() {
-        for j in 0..brick_info.len() {
-            if i == j {
-                continue;
-            }
 
-            let brick_a = brick_info.get(i).unwrap();
-            let brick_b = brick_info.get(j).unwrap();
+    for i in 0..part_info.len() {
+        for j in (0..i).chain((i + 1)..part_info.len()) {
+            let part_a = part_info.get(i).unwrap();
+            let part_b = part_info.get(j).unwrap();
             let node_a = nodes.get(i).unwrap();
             let node_b = nodes.get(j).unwrap();
 
             if graph.has_edge(*node_a, *node_b) {
                 continue;
             }
-
-            let check = touch_check(
-                brick_a.1, brick_a.2, brick_a.3, brick_b.1, brick_b.2, brick_b.3,
-            );
-
-            if check && !(brick_a.4.anchored && brick_b.4.anchored) {
-                graph.add_edge(*node_a, *node_b, brick_a.4.anchored || brick_b.4.anchored);
+            let check = touch_check(part_a.1, part_a.2, part_a.3, part_b.1, part_b.2, part_b.3);
+            // We don't add edges to anchor<->anchor because they don't make models !
+            if check && !(part_a.4.anchored && part_b.4.anchored) {
+                graph.add_edge(*node_a, *node_b, part_a.4.anchored || part_b.4.anchored);
             }
         }
     }
@@ -131,15 +123,14 @@ pub fn build_models(
     let mut collections = Vec::new();
     for i in 0..graph.node_count() {
         // If already added to component, continue
-        // anchored nodes are never dirtied, but are never used to iterate through graphs
-
-        if *dirty.get(i).unwrap() == true || brick_info.get(i).unwrap().4.anchored {
+        // anchored nodes are never dirtied, but are also never used to iterate through graphs
+        if *dirty.get(i).unwrap() == true || part_info.get(i).unwrap().4.anchored {
             continue;
         }
 
         let start_node = graph.from_index(i);
 
-        let mut brick_set = HashSet::new();
+        let mut part_set = HashSet::new();
         // New graph time and anchored bricks!
         let mut subgraph: UnGraphMap<Entity, ()> = UnGraphMap::new();
         // <K, [E]> s.t. K is anchored and not in component_graph
@@ -147,92 +138,75 @@ pub fn build_models(
         let mut anchor_map: HashMap<Entity, HashSet<Entity>> = HashMap::new();
 
         let mut queue = VecDeque::from([start_node]);
-        // Graph iteration
+        // Graph traversal
         while let Some(node) = queue.pop_front() {
             for (a, b, &anchored) in graph.edges(node) {
-                let a_info = brick_info.get(a.index()).unwrap();
-                let b_info = brick_info.get(b.index()).unwrap();
+                let a_info = part_info.get(a.index()).unwrap();
+                let b_info = part_info.get(b.index()).unwrap();
 
                 *dirty.get_mut(a.index()).unwrap() = true;
 
                 // If previous traversals didn't add: add them
                 if !subgraph.contains_node(a_info.0) {
                     subgraph.add_node(a_info.0);
-                    brick_set.insert(a_info.0);
+                    part_set.insert(a_info.0);
                 }
                 if !subgraph.contains_node(b_info.0) && !anchored {
                     subgraph.add_node(b_info.0);
-                    brick_set.insert(b_info.0);
+                    part_set.insert(b_info.0);
                     queue.push_back(b);
                 }
 
                 if anchored {
-                    // We don't add anchored bricks to the graph but instead keep track of them in a set
-                    // nor are they considered in further traversals, we STOP at them and don't go further
+                    // If we have an anchored edge, with key=anchor add our models node
                     let set = anchor_map.entry(b_info.0).or_insert(HashSet::new());
                     set.insert(a_info.0);
                 } else {
                     // Handle non-anchored bricks
-                    _ = subgraph.add_edge(a_info.0, b_info.0, ());
+                    subgraph.add_edge(a_info.0, b_info.0, ());
                 }
             }
         }
-
-        collections.push((brick_set, subgraph, anchor_map));
+        collections.push((part_set, subgraph, anchor_map));
     }
-
-    /*
-       Given subgraphs, build them
-    */
 
     // for anchored bricks with bricks attached we save entities attached and add the components after doing everything
     let mut anchor_sources: HashMap<Entity, HashSet<Entity>> = HashMap::new();
 
+    // Stage where subgraphs are built after we've generated them through traversing the graph
     for (set, graph, anchors) in collections {
         /*
-           Handle solitary bricks
+           Handle bricks under no model
+
+           We only need to handle if it's attached to anchors
         */
-        if set.len() == 1 {
-            // Brick is independent
-            let &e = set.iter().next().unwrap();
-            if anchors.len() > 0 {
-                // Handle anchored
-                let sources: HashSet<Entity> = anchors.keys().cloned().collect();
-                // Given part, given it anchor sources
-                commands.entity(e).insert(AnchoredTo(sources.clone()));
-            }
+        if set.len() == 1 && anchors.len() > 0 {
+            let &entity = set.iter().next().unwrap();
+
+            // Handle anchored
+            let sources: HashSet<Entity> = anchors.keys().cloned().collect();
+            // Given part, given it anchor sources if it's connected to an anchor
+            commands.entity(entity).insert(AnchoredTo(sources.clone()));
         /*
            Handle bricks under a model
         */
         } else {
-            // Brick is under a model
             let entities: Vec<Entity> = set.clone().into_iter().collect();
 
-            // Collect our entities that are anchored.
+            // Collect our entities that attached to anchors
             let anchored: HashSet<Entity> = anchors
                 .values()
                 .flat_map(|set| set.iter())
                 .cloned()
                 .collect();
 
-            // For each entity connected to an anchored brick
-            for &entity in &entities {
+            for &part in &anchored {
                 let connected_anchors: HashSet<Entity> = anchors
                     .iter()
-                    .filter_map(|(&e, v)| if v.contains(&entity) { Some(e) } else { None })
+                    .filter_map(|(&e, v)| if v.contains(&part) { Some(e) } else { None })
                     .collect();
 
-                if connected_anchors.len() == 0 {
-                    continue;
-                }
-
-                commands
-                    .entity(entity)
-                    .insert(AnchoredTo(connected_anchors));
-
-                //world
-                //    .entity_mut(entity)
-                //    .insert(AnchoredTo(connected_anchors));
+                commands.entity(part).insert(AnchoredTo(connected_anchors));
             }
 
             commands

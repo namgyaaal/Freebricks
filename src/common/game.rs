@@ -216,8 +216,10 @@ impl Game {
                 SceneTree::init,
                 DebugDraw::init,
                 build_models,
-                PhysicsState::setup_solo_bricks,
+                PhysicsState::setup_individual_parts,
                 PhysicsState::setup_model_bricks,
+                //PhysicsState::setup_solo_bricks,
+                //PhysicsState::setup_model_bricks,
             )
                 .chain(),
         );
