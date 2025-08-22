@@ -1,13 +1,11 @@
-use bevy_ecs::prelude::*;
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::prelude::*;
 use glam::{Quat, Vec3};
-
-
 
 #[derive(Component, Debug, Deref, DerefMut)]
 pub struct Position(pub Vec3);
 
-impl Default for Position  {
+impl Default for Position {
     fn default() -> Self {
         Position(Vec3::ZERO)
     }
@@ -30,7 +28,6 @@ impl Default for Size {
         Size(Vec3::new(4.0, 1.0, 2.0))
     }
 }
-
 
 #[derive(Component, Debug, Deref, DerefMut)]
 pub struct Color(pub [u8; 4]);

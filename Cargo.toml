@@ -26,8 +26,3 @@ petgraph = "0.8.2"
 version = "0.24"
 default-features = false
 features = ["png", "jpeg"]
-
-
- 
-
- 

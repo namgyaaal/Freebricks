@@ -1,23 +1,25 @@
-use bevy_ecs::prelude::*;
 use anyhow::Result;
+use bevy_ecs::prelude::*;
 use std::{
-    collections::HashMap, fs::{self, metadata, File}, io::Read, path::{Path, PathBuf}
+    collections::HashMap,
+    fs::{self, File, metadata},
+    io::Read,
+    path::{Path, PathBuf},
 };
 use tracing::info;
 
 pub enum Asset {
-    Image(Vec<u8>), 
-    Shader(String)
+    Image(Vec<u8>),
+    Shader(String),
 }
 
 impl Asset {
-    /// Given a filepath, parse it if it's a relevant asset, otherwise return nothing. 
+    /// Given a filepath, parse it if it's a relevant asset, otherwise return nothing.
     pub fn from_file(path: &Path, mut file: File) -> Option<Self> {
-        let metadata = metadata(path)
-            .expect(format!("Error loading metadata for file").as_str());
+        let metadata = metadata(path).expect(format!("Error loading metadata for file").as_str());
         /*
-            Check different matches here         
-         */
+           Check different matches here
+        */
         let mut asset: Option<Self> = None;
 
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
@@ -34,7 +36,6 @@ impl Asset {
 
                 asset = Some(Asset::Shader(shader_source));
             }
-    
         }
 
         return asset;
@@ -43,18 +44,18 @@ impl Asset {
 
 #[derive(Resource)]
 pub struct AssetCache {
-    pub map: HashMap<String, Asset>
+    pub map: HashMap<String, Asset>,
 }
 
 impl AssetCache {
     /// Recursively load a directory for relevant assets
     pub fn init(dir: &str) -> Result<Self> {
-        let mut map : HashMap<String, Asset> = HashMap::new();
+        let mut map: HashMap<String, Asset> = HashMap::new();
 
         let mut paths = vec![PathBuf::from(dir)];
         while !paths.is_empty() {
             let path = paths.pop().unwrap();
-            
+
             let entries = fs::read_dir(path)?;
             for entry in entries {
                 let entry = entry?;
@@ -66,39 +67,37 @@ impl AssetCache {
                     let file = File::open(&path)?;
 
                     if let Some(asset) = Asset::from_file(&path, file) {
-                        let new_name= path
+                        let new_name = path
                             .clone()
-                            .components() 
+                            .components()
                             .skip(1)
-                            .collect::<PathBuf>() 
+                            .collect::<PathBuf>()
                             .to_string_lossy()
                             .to_string();
-                        
+
                         info!("Inserting asset {}", new_name);
                         map.insert(new_name, asset);
                     }
-
                 }
             }
         }
         Ok(AssetCache { map: map })
     }
 
-    /// Shorthand to get a shader to prevent having to do match every time 
+    /// Shorthand to get a shader to prevent having to do match every time
     pub fn get_shader(&self, name: &str) -> Option<&String> {
         if let Some(asset) = self.map.get(name) {
             match asset {
                 Asset::Shader(src) => {
-                    return Some(src); 
+                    return Some(src);
                 }
                 _ => {}
             }
-
         }
-        return None; 
-    } 
+        return None;
+    }
 
-    /// Shorthand to get an image to prevent having to do a match every time 
+    /// Shorthand to get an image to prevent having to do a match every time
     pub fn get_image(&self, name: &str) -> Option<&[u8]> {
         if let Some(asset) = self.map.get(name) {
             match asset {
@@ -108,6 +107,6 @@ impl AssetCache {
                 _ => {}
             }
         }
-        return None; 
+        return None;
     }
 }

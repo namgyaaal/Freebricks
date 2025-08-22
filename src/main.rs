@@ -1,7 +1,6 @@
-
 use winit::event_loop::EventLoop;
 
-use freebricks::application::application::{Application};
+use freebricks::application::application::Application;
 
 fn run() -> anyhow::Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
@@ -19,7 +18,7 @@ fn main() {
     run().unwrap();
 }
 
-/* 
+/*
 
 use freebricks::render_kit::application::App;
 

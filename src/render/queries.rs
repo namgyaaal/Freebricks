@@ -3,7 +3,6 @@
 Modification of https://github.com/gfx-rs/wgpu/blob/trunk/examples/features/src/timestamp_queries/mod.rs
 */
 
-
 pub struct Queries {
     pub set: wgpu::QuerySet,
     pub resolve_buffer: wgpu::Buffer,
@@ -11,7 +10,7 @@ pub struct Queries {
 }
 
 pub struct QueryResults {
-    pub render_start_end_timestamps: [u64; 2]
+    pub render_start_end_timestamps: [u64; 2],
 }
 
 impl QueryResults {
@@ -34,11 +33,10 @@ impl QueryResults {
             slot
         };
 
-
         let render_start_end_timestamps = [get_next_slot(), get_next_slot()];
 
         QueryResults {
-            render_start_end_timestamps
+            render_start_end_timestamps,
         }
     }
 
@@ -53,7 +51,6 @@ impl QueryResults {
                 self.render_start_end_timestamps[1]
             ) / 1_000_000.0
         );
-
     }
 }
 
@@ -76,17 +73,12 @@ impl Queries {
                 size: 16,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
-            })
+            }),
         }
     }
 
     pub fn resolve(&self, encoder: &mut wgpu::CommandEncoder) {
-        encoder.resolve_query_set(
-            &self.set,
-            0..2,
-            &self.resolve_buffer,
-            0,
-        );
+        encoder.resolve_query_set(&self.set, 0..2, &self.resolve_buffer, 0);
         encoder.copy_buffer_to_buffer(
             &self.resolve_buffer,
             0,
@@ -102,7 +94,6 @@ impl Queries {
         encoder.clear_buffer(&self.destination_buffer, 0, None);
     }
 
-
     pub fn get_timestamp(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<f32> {
         self.destination_buffer
             .slice(..)
@@ -111,23 +102,20 @@ impl Queries {
         device.poll(wgpu::PollType::Wait).unwrap();
 
         let timestamps: Vec<u64> = {
-            let timestamp_view = self
-                .destination_buffer
-                .slice(..)
-                .get_mapped_range();
+            let timestamp_view = self.destination_buffer.slice(..).get_mapped_range();
             bytemuck::cast_slice(&timestamp_view).to_vec()
         };
 
         self.destination_buffer.unmap();
-        
-        // Non-monotonic timestamps on OSX are common 
+
+        // Non-monotonic timestamps on OSX are common
         if timestamps[1] <= timestamps[0] {
-            return None; 
+            return None;
         }
 
         let period = queue.get_timestamp_period();
 
-        let dur = timestamps[1].wrapping_sub(timestamps[0]) as f32 * period / 1_000_000.0; 
+        let dur = timestamps[1].wrapping_sub(timestamps[0]) as f32 * period / 1_000_000.0;
 
         Some(dur)
     }

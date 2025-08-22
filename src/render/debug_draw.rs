@@ -1,37 +1,43 @@
-use bevy_ecs::{prelude::*};
-use rapier3d::prelude::*;
+use bevy_ecs::prelude::*;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
+use rapier3d::prelude::*;
 use std::{borrow::Cow, fmt::Debug, mem::size_of};
 
-use crate::{common::{asset_cache::{AssetCache}}, render::{camera::Camera, render_state::{RenderPassInfo, RenderState}, texture::Texture}};
+use crate::{
+    common::asset_cache::AssetCache,
+    render::{
+        camera::Camera,
+        render_state::{RenderPassInfo, RenderState},
+        texture::Texture,
+    },
+};
 
-const MAX_DEBUG_VERTICES: u64 = 1024 * 1024; 
+const MAX_DEBUG_VERTICES: u64 = 1024 * 1024;
 
 #[derive(Resource)]
 pub struct DebugDraw {
     pipeline: wgpu::RenderPipeline,
-    buffer: wgpu::Buffer, 
+    buffer: wgpu::Buffer,
     lines: Vec<Vec3>,
 }
 
 impl DebugDraw {
-
-    /// Initialization DebugDraw 
-    /// Requires Camera to be initialized so that it can get the camera bind group layout 
+    /// Initialization DebugDraw
+    /// Requires Camera to be initialized so that it can get the camera bind group layout
     pub fn init(world: &mut World) {
-        let asset_cache = world.get_resource::<AssetCache>()
-            .unwrap();
+        let asset_cache = world.get_resource::<AssetCache>().unwrap();
 
         let shader_source = asset_cache
             .get_shader("shaders/debug_draw.wgsl")
             .expect("Couldn't load debug shader");
 
-
-        let render_state = world.get_resource::<RenderState>()
+        let render_state = world
+            .get_resource::<RenderState>()
             .expect("DebugDraw::init(), expected Render State");
 
-        let camera = world.get_resource::<Camera>() 
+        let camera = world
+            .get_resource::<Camera>()
             .expect("DebugDraw::init(), expected Camera");
 
         let device = &render_state.device;
@@ -39,85 +45,83 @@ impl DebugDraw {
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Debug Line Data"),
-            size: size_of::<DebugVertex>() as u64 * MAX_DEBUG_VERTICES,  // Should be good enough. 
+            size: size_of::<DebugVertex>() as u64 * MAX_DEBUG_VERTICES, // Should be good enough.
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false 
+            mapped_at_creation: false,
         });
-
-
 
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Debug Pipeline Layout"),
             bind_group_layouts: &[&camera.default_layout],
-            push_constant_ranges: &[]
+            push_constant_ranges: &[],
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Debug Shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::from(shader_source)).into()
+            source: wgpu::ShaderSource::Wgsl(Cow::from(shader_source)).into(),
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Debug Pipeline"),
             layout: Some(&layout),
-            vertex: wgpu::VertexState { 
-                module: &shader, 
+            vertex: wgpu::VertexState {
+                module: &shader,
                 entry_point: Some("vs_main"),
                 buffers: &[DebugVertex::desc()],
-                compilation_options: wgpu::PipelineCompilationOptions::default()
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader, 
+                module: &shader,
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format, 
+                    format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
-                })]
+                })],
             }),
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList, 
-                strip_index_format: None, 
-                front_face: wgpu::FrontFace::Cw, 
+                topology: wgpu::PrimitiveTopology::LineList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Cw,
                 cull_mode: Some(wgpu::Face::Back),
                 polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false, 
-                conservative: false 
+                unclipped_depth: false,
+                conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less, // 1.
-                stencil: wgpu::StencilState::default(), // 2.
+                stencil: wgpu::StencilState::default(),     // 2.
                 bias: wgpu::DepthBiasState::default(),
-            }), 
+            }),
             multisample: wgpu::MultisampleState {
-                count: 1, 
-                mask: !0, 
-                alpha_to_coverage_enabled: false 
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
             },
-            multiview: None, 
-            cache: None    
+            multiview: None,
+            cache: None,
         });
 
-
         world.insert_resource(DebugDraw {
-            pipeline: pipeline, 
+            pipeline: pipeline,
             buffer: buffer,
-            lines: Vec::new()
+            lines: Vec::new(),
         });
     }
 
-    /// Renders the debug draw lines onto the scene 
+    /// Renders the debug draw lines onto the scene
     pub fn render(
-        mut debug_draw: ResMut<DebugDraw>, 
-        mut info: ResMut<RenderPassInfo>, 
+        mut debug_draw: ResMut<DebugDraw>,
+        mut info: ResMut<RenderPassInfo>,
         state: Res<RenderState>,
-        camera: Res<Camera>
-    ) {    
+        camera: Res<Camera>,
+    ) {
         let queue = &state.queue;
-        let pass = info.pass
+        let pass = info
+            .pass
             .as_mut()
             .expect("DebugDraw::render(),  Render pass expected");
         if debug_draw.lines.len() == 0 {
@@ -125,9 +129,11 @@ impl DebugDraw {
         }
 
         let vertex_data: Vec<DebugVertex> = debug_draw
-            .lines 
+            .lines
             .iter()
-            .map(|v| DebugVertex {position: v.to_array()})
+            .map(|v| DebugVertex {
+                position: v.to_array(),
+            })
             .collect();
 
         queue.write_buffer(&debug_draw.buffer, 0, bytemuck::cast_slice(&vertex_data));
@@ -139,31 +145,26 @@ impl DebugDraw {
         pass.set_vertex_buffer(0, debug_draw.buffer.slice(0..buf_size));
         pass.draw(0..debug_draw.lines.len() as u32, 0..1);
 
-
-
-       debug_draw.lines.clear();
+        debug_draw.lines.clear();
     }
 }
 
 impl DebugRenderBackend for DebugDraw {
     fn draw_line(
-        &mut self, 
-        _object: DebugRenderObject, 
+        &mut self,
+        _object: DebugRenderObject,
         a: Point<f32>,
         b: Point<f32>,
-        _color: DebugColor) 
-    {
-        // Just means that the scene is too big, don't need to treat as an error. 
+        _color: DebugColor,
+    ) {
+        // Just means that the scene is too big, don't need to treat as an error.
         if self.lines.len() >= MAX_DEBUG_VERTICES as usize {
             return;
         }
         self.lines.push(Vec3::new(a.x, a.y, a.z));
         self.lines.push(Vec3::new(b.x, b.y, b.z));
     }
-    
 }
-
-
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -175,14 +176,12 @@ impl DebugVertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: size_of::<DebugVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex, 
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0, 
-                    shader_location: 0, 
-                    format: wgpu::VertexFormat::Float32x3
-                }
-            ]
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x3,
+            }],
         }
     }
 }
