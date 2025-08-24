@@ -5,7 +5,7 @@ use freebricks::{
         common::{Position, Size},
         model::Model,
         parts::*,
-        physics::{AnchorSource, AnchoredTo, BodyHandle, Physical, PhysicsCleanup, ShapeHandle},
+        physics::{Anchor, Anchored, BodyHandle, Physical, PhysicsCleanup, ShapeHandle},
     },
     physics::PhysicsState,
 };
@@ -33,26 +33,9 @@ fn util_setup() -> (World, Schedule, Schedule) {
 
     let mut init_schedule = Schedule::default();
     let mut update_schedule = Schedule::default();
-    init_schedule.add_systems(
-        (
-            build_models,
-            PhysicsState::setup_solo_bricks,
-            PhysicsState::setup_model_bricks,
-        )
-            .chain(),
-    );
+    init_schedule.add_systems((build_models, PhysicsState::setup_system()).chain());
 
-    update_schedule.add_systems(
-        (
-            PhysicsState::step,
-            PhysicsState::add_bricks,
-            PhysicsState::handle_deletion,
-            PhysicsState::handle_deletion_two,
-            PhysicsState::handle_model_mutations,
-            PhysicsState::update_bricks,
-        )
-            .chain(),
-    );
+    update_schedule.add_systems((PhysicsState::update_system(false)).chain());
 
     return (world, init_schedule, update_schedule);
 }
@@ -68,10 +51,10 @@ fn guarantee(
     body: bool,
 ) {
     // Anchoring
-    let mut query = world.query::<&AnchoredTo>();
+    let mut query = world.query::<&Anchored>();
     assert_eq!(query.get(world, entity).is_ok(), anchored);
 
-    let mut query = world.query::<&AnchorSource>();
+    let mut query = world.query::<&Anchor>();
     assert_eq!(query.get(world, entity).is_ok(), anchor);
 
     // Model
@@ -158,7 +141,7 @@ fn handle_deletion<T: Component>(
 pub fn one_brick() {
     let (mut world, mut sched_start, mut sched_update) = util_setup();
 
-    let entity = world.spawn((Part::default(), Physical::dynamic())).id();
+    let entity = world.spawn((Part::default(), Physical)).id();
 
     sched_start.run(&mut world);
     sched_update.run(&mut world);
@@ -172,12 +155,12 @@ pub fn one_brick() {
 pub fn one_anchored_brick() {
     let (mut world, mut sched_start, mut sched_update) = util_setup();
 
-    let entity = world.spawn((Part::default(), Physical::anchored())).id();
+    let entity = world.spawn((Part::default(), Physical, Anchor)).id();
 
     sched_start.run(&mut world);
     sched_update.run(&mut world);
 
-    guarantee(&mut world, entity, false, false, false, false, true, false);
+    guarantee(&mut world, entity, false, true, false, false, true, false);
     collider_check(&mut world, entity);
 }
 
@@ -188,12 +171,12 @@ pub fn two_separate_bricks() {
     let bricks = vec![
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
     ];
@@ -218,12 +201,12 @@ pub fn two_snapped_bricks() {
     let bricks = vec![
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ),
     ];
@@ -261,7 +244,7 @@ pub fn two_smooth_bricks_touching() {
                 top: StudType::Flat,
                 bottom: StudType::Flat,
             },
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
@@ -270,7 +253,7 @@ pub fn two_smooth_bricks_touching() {
                 top: StudType::Flat,
                 bottom: StudType::Flat,
             },
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ),
     ];
@@ -295,22 +278,22 @@ pub fn two_models() {
     let bricks = vec![
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(10.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(10.0, 1.0, 0.0)),
         ),
     ];
@@ -349,7 +332,8 @@ pub fn brick_touching_anchor() {
     let anchor = world
         .spawn((
             Part::default(),
-            Physical::anchored(),
+            Physical,
+            Anchor,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ))
         .id();
@@ -357,7 +341,7 @@ pub fn brick_touching_anchor() {
     let anchored = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ))
         .id();
@@ -387,20 +371,21 @@ pub fn model_touching_anchor() {
     let bricks = vec![
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ),
-        (
-            Part::default(),
-            Physical::anchored(),
-            Position(Vec3::new(0.0, 2.0, 0.0)),
-        ),
     ];
+    world.spawn((
+        Part::default(),
+        Physical,
+        Anchor,
+        Position(Vec3::new(0.0, 2.0, 0.0)),
+    ));
     let _ = world
         .spawn_batch(bricks.into_iter())
         .collect::<Vec<Entity>>();
@@ -427,10 +412,17 @@ pub fn model_touching_anchor() {
 pub fn anchor_deletion_brick() {
     let (mut world, mut sched_start, mut sched_update) = util_setup();
 
+    world.add_observer(
+        |handle: Trigger<OnRemove, ShapeHandle>, state: ResMut<PhysicsState>| {
+            println!("Sup, WHat's up");
+        },
+    );
+
     let anchor = world
         .spawn((
             Part::default(),
-            Physical::anchored(),
+            Physical,
+            Anchor,
             Position(Vec3::new(0.0, 0.0, 0.0)),
             Tag1,
         ))
@@ -439,7 +431,7 @@ pub fn anchor_deletion_brick() {
     let anchored = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ))
         .id();
@@ -484,7 +476,8 @@ pub fn two_anchors_one_brick() {
             Part::default(),
             Position(Vec3::new(2.0, 10.0, 0.0)),
             Size(Vec3::new(4.0, 2.0, 4.0)),
-            Physical::default(),
+            Physical,
+            Anchor,
             Tag1,
         ))
         .id();
@@ -493,7 +486,8 @@ pub fn two_anchors_one_brick() {
             Part::default(),
             Position(Vec3::new(2.0, 10.0, 0.0)),
             Size(Vec3::new(4.0, 2.0, 4.0)),
-            Physical::default(),
+            Physical,
+            Anchor,
             Tag2,
         ))
         .id();
@@ -502,7 +496,7 @@ pub fn two_anchors_one_brick() {
             Part::default(),
             Position(Vec3::new(0.0, 8.0, 0.0)),
             Size(Vec3::new(5.0, 2.0, 5.0)),
-            Physical::dynamic(),
+            Physical,
         ))
         .id();
 
@@ -573,12 +567,12 @@ pub fn anchor_deletion_model() {
     let bricks = vec![
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ),
     ];
@@ -586,7 +580,8 @@ pub fn anchor_deletion_model() {
 
     world.spawn((
         Part::default(),
-        Physical::anchored(),
+        Physical,
+        Anchor,
         Position(Vec3::new(0.0, 2.0, 0.0)),
         Tag1,
     ));
@@ -618,7 +613,7 @@ pub fn anchor_deletion_model() {
     body_check(&mut world, model_entity, RigidBodyType::Dynamic);
 
     world
-        .query::<&AnchoredTo>()
+        .query::<&Anchored>()
         .get(&world, model_entity)
         .expect_err("Model shouldn't have anchored_to component");
 }
@@ -629,18 +624,18 @@ pub fn model_leaf_deletion() {
 
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 0.0, 0.0)),
         Tag1,
     ));
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 1.0, 0.0)),
     ));
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 2.0, 0.0)),
     ));
 
@@ -685,34 +680,34 @@ pub fn model_cut_deletion_5() {
     let _brick_zero = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, -1.0, 0.0)),
         ))
         .id();
     let _brick_one = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ))
         .id();
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 1.0, 0.0)),
         Tag1,
     ));
     let _brick_two = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 2.0, 0.0)),
         ))
         .id();
     let _brick_three = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 3.0, 0.0)),
         ))
         .id();
@@ -749,20 +744,20 @@ pub fn model_cut_deletion_3() {
     let brick_one = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ))
         .id();
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 1.0, 0.0)),
         Tag1,
     ));
     let brick_two = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 2.0, 0.0)),
         ))
         .id();
@@ -806,24 +801,25 @@ pub fn model_leaf_anchored_deletion() {
     let bricks = vec![
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ),
         (
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 1.0, 0.0)),
         ),
-        (
-            Part::default(),
-            Physical::anchored(),
-            Position(Vec3::new(0.0, 3.0, 0.0)),
-        ),
     ];
+    let _ = world.spawn((
+        Part::default(),
+        Physical,
+        Anchor,
+        Position(Vec3::new(0.0, 3.0, 0.0)),
+    ));
     let _ = world.spawn_batch(bricks);
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 2.0, 0.0)),
         Tag1,
     ));
@@ -875,7 +871,7 @@ pub fn model_cut_anchored_deletion() {
     let brick_one = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 0.0, 0.0)),
         ))
         .id();
@@ -883,7 +879,7 @@ pub fn model_cut_anchored_deletion() {
     let brick_two = world
         .spawn((
             Part::default(),
-            Physical::dynamic(),
+            Physical,
             Position(Vec3::new(0.0, 2.0, 0.0)),
         ))
         .id();
@@ -891,14 +887,15 @@ pub fn model_cut_anchored_deletion() {
     let _ = world
         .spawn((
             Part::default(),
-            Physical::anchored(),
+            Physical,
+            Anchor,
             Position(Vec3::new(0.0, 3.0, 0.0)),
         ))
         .id();
 
     let _ = world.spawn((
         Part::default(),
-        Physical::dynamic(),
+        Physical,
         Position(Vec3::new(0.0, 1.0, 0.0)),
         Tag1,
     ));

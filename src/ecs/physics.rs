@@ -1,43 +1,24 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
+use bevy_platform::collections::HashSet;
 use rapier3d::prelude::*;
-use std::collections::HashSet;
 
 use crate::ecs::common::{Position, Rotation, Size};
 
+#[derive(Component, Debug, Default)]
+pub struct Physical;
+#[derive(Component, Debug, Default)]
+#[require(Physical)]
+pub struct Anchor;
+
 #[derive(Component, Debug)]
-pub struct Physical {
-    pub anchored: bool,
-}
-
-impl Default for Physical {
-    fn default() -> Self {
-        Physical { anchored: true }
-    }
-}
-
-impl Physical {
-    pub fn dynamic() -> Self {
-        Physical { anchored: false }
-    }
-
-    pub fn anchored() -> Self {
-        Physical::default()
-    }
-}
+pub struct Anchored(pub HashSet<Entity>);
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BodyHandle(pub RigidBodyHandle);
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct ShapeHandle(pub ColliderHandle);
-
-#[derive(Component, Debug)]
-pub struct AnchoredTo(pub HashSet<Entity>);
-
-#[derive(Component, Debug)]
-pub struct AnchorSource;
-
 #[derive(QueryData)]
 #[query_data(mutable, derive(Debug))]
 pub struct QPhysics {

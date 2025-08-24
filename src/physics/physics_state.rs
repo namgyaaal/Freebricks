@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use bevy_platform::collections::{HashMap, HashSet};
+use std::collections::VecDeque;
 use std::ops::DerefMut;
 
 use crate::ecs::common::{Position, Rotation};
@@ -9,12 +10,16 @@ use crate::{
     render::debug_draw::*,
 };
 use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::ScheduleConfigs;
+use bevy_ecs::system::ScheduleSystem;
 use glam::{Vec3, quat};
 use petgraph::prelude::UnGraphMap;
 use petgraph::visit::{Bfs, NodeIndexable};
 use rapier3d::na::Isometry;
 use rapier3d::pipeline::DebugRenderPipeline;
 use rapier3d::prelude::*;
+
+use super::{deletion::*, setup::*};
 
 #[derive(Resource)]
 pub struct PhysicsState {
@@ -40,6 +45,7 @@ impl State<PhysicsState> for PhysicsState {
     fn consume(world: &mut World, state: PhysicsState) {
         world.insert_resource(state);
         world.insert_resource(Events::<PhysicsCleanup>::default());
+        world.add_observer(handle_body_removal);
     }
 }
 
@@ -80,6 +86,27 @@ impl PhysicsState {
         }
     }
 
+    /// Add schedulers
+    pub fn setup_system() -> ScheduleConfigs<ScheduleSystem> {
+        (setup_parts, setup_models).chain()
+    }
+
+    pub fn update_system(debug_draw: bool) -> ScheduleConfigs<ScheduleSystem> {
+        (
+            Self::step,
+            Self::write_debug.run_if(move || -> bool { debug_draw }),
+            Self::add_bricks,
+            Self::handle_deletion,
+            Self::handle_deletion_two,
+            Self::handle_pop,
+            Self::handle_model_mutations,
+            Self::handle_new_collider,
+            Self::handle_deleted_collider,
+            Self::update_bricks,
+        )
+            .chain()
+    }
+
     /// Update physics state
     pub fn step(mut state: ResMut<PhysicsState>) {
         let state = state.deref_mut();
@@ -109,6 +136,8 @@ impl PhysicsState {
     */
 
     /// Handle solitary bricks
+    ///
+    /*
     pub fn setup_solo_bricks(
         mut commands: Commands,
         mut state: ResMut<PhysicsState>,
@@ -225,10 +254,10 @@ impl PhysicsState {
             commands.entity(item.entity).insert(BodyHandle(body_handle));
         }
     }
-
+    */
     pub fn handle_new_collider(
         mut state: ResMut<PhysicsState>,
-        mut added: Query<(Entity, &ShapeHandle), Added<ShapeHandle>>,
+        added: Query<(Entity, &ShapeHandle), Added<ShapeHandle>>,
     ) {
         for (e, handle) in added {
             state.collider_sources.insert(handle.0, e);
@@ -291,8 +320,8 @@ impl PhysicsState {
     pub fn handle_deletion(
         mut commands: Commands,
         mut state: ResMut<PhysicsState>,
-        mut anchored_solo_bricks: Query<(&BodyHandle, &mut AnchoredTo), Without<ChildOf>>,
-        mut anchored_model_bricks: Query<(&mut AnchoredTo, &ChildOf)>,
+        mut anchored_solo_bricks: Query<(&BodyHandle, &mut Anchored), Without<ChildOf>>,
+        mut anchored_model_bricks: Query<(&mut Anchored, &ChildOf)>,
 
         mut models: Query<(&mut Model, &BodyHandle)>,
         mut deleted: EventReader<PhysicsCleanup>,
@@ -313,6 +342,7 @@ impl PhysicsState {
             if !anchor_sources.contains_key(&cleanup.entity) {
                 continue;
             }
+
             let connected = anchor_sources.remove(&cleanup.entity).unwrap();
 
             // Go through bricks connected to this one
@@ -329,7 +359,7 @@ impl PhysicsState {
                     };
 
                     body.set_body_type(RigidBodyType::Dynamic, true);
-                    commands.entity(anchored).remove::<AnchoredTo>();
+                    commands.entity(anchored).remove::<Anchored>();
 
                 // Model Bricks
                 } else if let Ok((mut set, parent)) = anchored_model_bricks.get_mut(anchored) {
@@ -342,7 +372,7 @@ impl PhysicsState {
                     let (mut model, handle) = models.get_mut(parent.0).expect("???");
 
                     model.anchored.remove(&anchored);
-                    commands.entity(anchored).remove::<AnchoredTo>();
+                    commands.entity(anchored).remove::<Anchored>();
 
                     if !model.anchored.is_empty() {
                         continue;
@@ -414,7 +444,7 @@ impl PhysicsState {
 
             // Popping removes it from anchors
             commands.entity(popped).insert(BodyHandle(new_handle));
-            commands.entity(popped).try_remove::<AnchoredTo>();
+            commands.entity(popped).try_remove::<Anchored>();
             for (_, anchored) in &mut state.anchor_sources {
                 anchored.remove(&popped);
             }
@@ -609,6 +639,7 @@ impl PhysicsState {
         mut commands: Commands,
         mut state: ResMut<PhysicsState>,
         new_bricks: Query<QPartWorldInit, (FPartAdd, Without<ShapeHandle>, Without<BodyHandle>)>,
+        is_anchor: Query<&Anchor>,
     ) {
         let state = state.deref_mut();
         let colliders = &mut state.colliders;
@@ -624,7 +655,7 @@ impl PhysicsState {
 
             let shape_builder = ColliderBuilder::cuboid(size.x, size.y, size.z).restitution(0.4);
 
-            if brick.physical.anchored {
+            if is_anchor.get(brick.entity).is_ok() {
                 let shape = shape_builder
                     .translation(vector![pos.x, pos.y, pos.z])
                     .rotation(vector![yaw, pitch, roll])

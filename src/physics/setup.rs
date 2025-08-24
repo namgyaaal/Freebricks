@@ -2,85 +2,86 @@ use std::ops::DerefMut;
 
 use crate::{
     ecs::{
-        model::QModel,
+        model::{FModelAdd, QModel},
+        parts::{FPartAdd, Part},
         physics::{
-            AnchoredTo, BodyHandle, QPhysics, QPhysicsItem, QPhysicsReadOnly, QPhysicsReadOnlyItem,
-            ShapeHandle,
+            Anchor, Anchored, BodyHandle, QPhysics, QPhysicsItem, QPhysicsReadOnly,
+            QPhysicsReadOnlyItem, ShapeHandle,
         },
     },
-    physics::PhysicsState,
+    physics::physics_state::PhysicsState,
 };
 use bevy_ecs::prelude::*;
 use rapier3d::prelude::*;
 
-impl PhysicsState {
-    /// Build physics information for parts not under a model.
-    /// There are three types of parts we need to worry about.
-    ///     (1) Unanchored parts connected to anchors
-    ///     (2) Unanchored parts not connnected to anchors
-    ///     (3) Anchored parts
-    /// Argument snapped handles (1) while unsnapped handles (2) and (3).
-    ///
-    /// Because rapier3d supports rigidbody-less colliders, we give (3) colliders only while (1) and (2) get rigid bodies alongside
-    ///     colliders. This saves performance if we have a scene with a lot of parts that are anchored, since they don't need rigid bodies.
-    pub fn setup_individual_parts(
-        mut commands: Commands,
-        mut state: ResMut<PhysicsState>,
-        snapped: Query<QPhysics, (Without<ChildOf>, With<AnchoredTo>)>,
-        unsnapped: Query<QPhysics, (Without<ChildOf>, Without<AnchoredTo>)>,
-    ) {
-        let state = state.deref_mut();
+/// Build physics information for parts not under a model.
+/// There are three types of parts we need to worry about.
+///     (1) Unanchored parts connected to anchors
+///     (2) Unanchored parts not connnected to anchors
+///     (3) Anchored parts
+/// Argument snapped handles (1) while unsnapped handles (2) and (3).
+///
+/// Because rapier3d supports rigidbody-less colliders, we give (3) colliders only while (1) and (2) get rigid bodies alongside
+///     colliders. This saves performance if we have a scene with a lot of parts that are anchored, since they don't need rigid bodies.
+pub fn setup_parts(
+    mut commands: Commands,
+    mut state: ResMut<PhysicsState>,
+    snapped: Query<QPhysics, (Without<ChildOf>, With<Anchored>, FPartAdd)>,
+    unsnapped: Query<QPhysics, (Without<ChildOf>, Without<Anchored>, FPartAdd)>,
+    is_anchor: Query<&Anchor>,
+) {
+    let state = state.deref_mut();
 
-        // Anchored
-        for part in &snapped {
-            build_body(&mut commands, state, part, RigidBodyBuilder::fixed());
-        }
-        // Anchors and unanchored
-        for part in &unsnapped {
-            if part.physical.anchored {
-                build_shape(&mut commands, state, part);
-            } else {
-                build_body(&mut commands, state, part, RigidBodyBuilder::dynamic());
-            }
-        }
+    // Anchored
+    for part in &snapped {
+        build_body(&mut commands, state, part, RigidBodyBuilder::fixed());
     }
-
-    pub fn setup_models(
-        mut commands: Commands,
-        mut state: ResMut<PhysicsState>,
-        models: Query<QModel>,
-        parts: Query<QPhysics>,
-    ) -> Result<()> {
-        let state = state.deref_mut();
-
-        for item in models {
-            let mut shapes = Vec::new();
-            for &child_id in item.children {
-                let child = parts.get(child_id)?;
-                let shape = get_shape(&child, true);
-                shapes.push((child_id, shape));
-            }
-            let body = if item.model.anchored.is_empty() {
-                RigidBodyBuilder::dynamic()
-            } else {
-                RigidBodyBuilder::fixed()
-            }
-            .user_data(item.entity.to_bits() as u128)
-            .build();
-
-            let body_handle = state.rigid_bodies.insert(body);
-            for (child, shape) in shapes {
-                let shape_handle =
-                    state
-                        .colliders
-                        .insert_with_parent(shape, body_handle, &mut state.rigid_bodies);
-                commands.entity(child).insert(ShapeHandle(shape_handle));
-            }
-            commands.entity(item.entity).insert(BodyHandle(body_handle));
+    // Anchors and unanchored
+    for part in &unsnapped {
+        if is_anchor.get(part.entity).is_ok() {
+            build_shape(&mut commands, state, part);
+        } else {
+            build_body(&mut commands, state, part, RigidBodyBuilder::dynamic());
         }
-        Ok(())
     }
 }
+
+pub fn setup_models(
+    mut commands: Commands,
+    mut state: ResMut<PhysicsState>,
+    models: Query<QModel, FModelAdd>,
+    parts: Query<QPhysics>,
+) -> Result<()> {
+    let state = state.deref_mut();
+
+    for item in models {
+        let mut shapes = Vec::new();
+        for &child_id in item.children {
+            let child = parts.get(child_id)?;
+            let shape = get_shape(&child, true);
+            shapes.push((child_id, shape));
+        }
+        let body = if item.model.anchored.is_empty() {
+            RigidBodyBuilder::dynamic()
+        } else {
+            RigidBodyBuilder::fixed()
+        }
+        .user_data(item.entity.to_bits() as u128)
+        .build();
+
+        let body_handle = state.rigid_bodies.insert(body);
+        for (child, shape) in shapes {
+            let shape_handle =
+                state
+                    .colliders
+                    .insert_with_parent(shape, body_handle, &mut state.rigid_bodies);
+            commands.entity(child).insert(ShapeHandle(shape_handle));
+        }
+        commands.entity(item.entity).insert(BodyHandle(body_handle));
+    }
+    Ok(())
+}
+
 /*
     Helper functions
 */

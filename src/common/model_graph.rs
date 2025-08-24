@@ -1,13 +1,14 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use bevy_platform::collections::{HashMap, HashSet};
+use std::collections::VecDeque;
 
 use crate::{
     ecs::{
         common::{Position, Rotation, Size},
         model::*,
         parts::*,
-        physics::{AnchorSource, AnchoredTo, Physical},
+        physics::{Anchor, Anchored, Physical},
     },
-    physics::PhysicsState,
+    physics::physics_state::PhysicsState,
 };
 use bevy_ecs::prelude::*;
 use petgraph::{matrix_graph::UnMatrix, prelude::UnGraphMap, visit::NodeIndexable};
@@ -60,6 +61,7 @@ pub fn build_models(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,
     parts: Query<QPartWorldInit>,
+    is_anchor: Query<&Anchor>,
 ) {
     let part_info: Vec<_> = parts
         .iter()
@@ -76,7 +78,7 @@ pub fn build_models(
                     part.position,
                     part.size,
                     part.studs,
-                    part.physical,
+                    is_anchor.get(part.entity).is_ok(),
                 ));
             }
         })
@@ -106,8 +108,8 @@ pub fn build_models(
             }
             let check = touch_check(part_a.1, part_a.2, part_a.3, part_b.1, part_b.2, part_b.3);
             // We don't add edges to anchor<->anchor because they don't make models !
-            if check && !(part_a.4.anchored && part_b.4.anchored) {
-                graph.add_edge(*node_a, *node_b, part_a.4.anchored || part_b.4.anchored);
+            if check && !(part_a.4 && part_b.4) {
+                graph.add_edge(*node_a, *node_b, part_a.4 || part_b.4);
             }
         }
     }
@@ -124,7 +126,7 @@ pub fn build_models(
     for i in 0..graph.node_count() {
         // If already added to component, continue
         // anchored nodes are never dirtied, but are also never used to iterate through graphs
-        if *dirty.get(i).unwrap() == true || part_info.get(i).unwrap().4.anchored {
+        if *dirty.get(i).unwrap() == true || part_info.get(i).unwrap().4 {
             continue;
         }
 
@@ -186,7 +188,7 @@ pub fn build_models(
             // Handle anchored
             let sources: HashSet<Entity> = anchors.keys().cloned().collect();
             // Given part, given it anchor sources if it's connected to an anchor
-            commands.entity(entity).insert(AnchoredTo(sources.clone()));
+            commands.entity(entity).insert(Anchored(sources.clone()));
         /*
            Handle bricks under a model
         */
@@ -206,7 +208,7 @@ pub fn build_models(
                     .filter_map(|(&e, v)| if v.contains(&part) { Some(e) } else { None })
                     .collect();
 
-                commands.entity(part).insert(AnchoredTo(connected_anchors));
+                commands.entity(part).insert(Anchored(connected_anchors));
             }
 
             commands
@@ -224,10 +226,6 @@ pub fn build_models(
                 .or_insert(HashSet::new())
                 .extend(set);
         }
-    }
-
-    for (&anchor, _) in &anchor_sources {
-        commands.entity(anchor).try_insert(AnchorSource);
     }
     // Save anchor sources
     state.anchor_sources = anchor_sources;

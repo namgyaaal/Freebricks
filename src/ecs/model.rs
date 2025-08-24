@@ -1,8 +1,8 @@
 use bevy_ecs::prelude::*;
-use bevy_ecs::query::QueryData;
+use bevy_ecs::query::{QueryData, QueryFilter};
+use bevy_platform::collections::HashSet;
 use core::fmt;
 use petgraph::prelude::UnGraphMap;
-use std::collections::HashSet;
 use std::fmt::Debug;
 
 use crate::ecs::physics::BodyHandle;
@@ -50,4 +50,15 @@ pub struct QModelPhysics {
     pub model: &'static Model,
     pub children: &'static Children,
     pub body: &'static BodyHandle,
+}
+
+/*  ---------------------
+
+    Filters
+
+*/
+
+#[derive(QueryFilter)]
+pub struct FModelAdd {
+    _c: Added<Model>,
 }

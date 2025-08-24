@@ -7,7 +7,7 @@ use crate::{
         physics::*,
         render::{BufferIndex, RenderCleanup},
     },
-    physics::physics_state::PhysicsState,
+    physics::PhysicsState,
     render::{
         camera::Camera,
         debug_draw::DebugDraw,
@@ -16,9 +16,13 @@ use crate::{
     },
 };
 use anyhow::Result;
-use bevy_ecs::prelude::*;
+use bevy_ecs::{
+    prelude::*,
+    schedule::{Schedulable, ScheduleConfigs},
+    system::ScheduleSystem,
+};
 use glam::{Vec2, Vec3};
-use rapier3d::prelude::*;
+use rapier3d::{crossbeam::epoch::Pointable, prelude::*};
 use std::{ops::Range, sync::Arc};
 use tracing::error;
 use winit::{dpi::PhysicalSize, window::Window};
@@ -210,14 +214,14 @@ impl Game {
             Game scene updating.
 
         */
+
         init_schedule.add_systems(
             (
                 Camera::init,
                 SceneTree::init,
                 DebugDraw::init,
                 build_models,
-                PhysicsState::setup_individual_parts,
-                PhysicsState::setup_model_bricks,
+                PhysicsState::setup_system(),
                 //PhysicsState::setup_solo_bricks,
                 //PhysicsState::setup_model_bricks,
             )
@@ -225,27 +229,15 @@ impl Game {
         );
         update_schedule.add_systems((foobar,).chain());
 
-        post_update_schedule.add_systems((
+        post_update_schedule.add_systems(
             (
-                PhysicsState::step,
-                PhysicsState::write_debug,
-                PhysicsState::add_bricks,
-                PhysicsState::handle_deletion,
-                PhysicsState::handle_deletion_two,
-                PhysicsState::handle_pop,
-                PhysicsState::handle_model_mutations,
-                PhysicsState::handle_new_collider,
-                PhysicsState::handle_deleted_collider,
-                PhysicsState::update_bricks,
-            )
-                .chain(),
-            (
+                PhysicsState::update_system(true),
                 SceneTree::remove_bricks,
                 SceneTree::add_bricks,
                 SceneTree::update_bricks,
             )
                 .chain(),
-        ));
+        );
 
         render_schedule.add_systems((
             SceneTree::render.before(RenderState::flush),
@@ -255,11 +247,12 @@ impl Game {
 
         // Do anything here
         let mut parts = Vec::new();
-        parts.push((
+        world.spawn((
             Part::default(),
             Position(Vec3::new(0.0, -20.0, 0.0)),
             Size(Vec3::new(100.0, 2.0, 100.0)),
-            Physical::default(),
+            Physical,
+            Anchor,
         ));
 
         for i in 0..20 {
@@ -271,33 +264,33 @@ impl Game {
                 Part::default(),
                 Position(Vec3::new(x, y, x)),
                 Size(Vec3::new(1.0, 6.0, 1.0)),
-                Physical::dynamic(),
+                Physical,
             ));
             parts.push((
                 Part::default(),
                 Position(Vec3::new(-x, y, -x)),
                 Size(Vec3::new(1.0, 6.0, 1.0)),
-                Physical::dynamic(),
+                Physical,
             ));
 
             parts.push((
                 Part::default(),
                 Position(Vec3::new(-x, y, x)),
                 Size(Vec3::new(1.0, 6.0, 1.0)),
-                Physical::dynamic(),
+                Physical,
             ));
             parts.push((
                 Part::default(),
                 Position(Vec3::new(x, y, -x)),
                 Size(Vec3::new(1.0, 6.0, 1.0)),
-                Physical::dynamic(),
+                Physical,
             ));
 
             parts.push((
                 Part::default(),
                 Position(Vec3::new(0.0, y + 3.5, 0.0)),
                 Size(Vec3::new(x * 2.0 + 1.0, 1.0, x * 2.0 + 1.0)),
-                Physical::dynamic(),
+                Physical,
             ));
         }
 
@@ -309,7 +302,7 @@ impl Game {
                     Part::default(),
                     Position(Vec3::new(xz.x, y, xz.y)),
                     Size(Vec3::new(4.0, 1.0, 4.0)),
-                    Physical::dynamic(),
+                    Physical,
                 ));
             }
         };
