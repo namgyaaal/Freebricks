@@ -9,9 +9,9 @@ use crate::ecs::physics::BodyHandle;
 
 #[derive(Component)]
 pub struct Model {
-    pub set: HashSet<Entity>,
     pub graph: UnGraphMap<Entity, ()>,
-    pub anchored: HashSet<Entity>,
+    pub anchors: HashSet<Entity>,
+    pub dirty: bool,
 }
 
 // UnMatrix doesn't impl Debug :(

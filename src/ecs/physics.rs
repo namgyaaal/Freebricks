@@ -1,5 +1,5 @@
-use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
+use bevy_ecs::{prelude::*, query::QueryFilter};
 use bevy_platform::collections::HashSet;
 use rapier3d::prelude::*;
 
@@ -19,6 +19,13 @@ pub struct BodyHandle(pub RigidBodyHandle);
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct ShapeHandle(pub ColliderHandle);
+
+/*  ---------------------
+
+    Queries
+
+*/
+
 #[derive(QueryData)]
 #[query_data(mutable, derive(Debug))]
 pub struct QPhysics {
@@ -29,10 +36,18 @@ pub struct QPhysics {
     pub physical: &'static Physical,
 }
 
-#[derive(Event)]
-pub struct PhysicsCleanup {
-    pub entity: Entity,
-    pub shape: Option<ShapeHandle>,
-    pub body: Option<BodyHandle>,
-    pub parent: Option<Entity>,
+/*  ---------------------
+
+    Filters
+
+*/
+
+#[derive(QueryFilter)]
+pub struct FAnchored {
+    generic_tuple: (With<Anchored>, Without<Anchor>),
+}
+
+#[derive(QueryFilter)]
+pub struct FUnanchored {
+    generic_tuple: (Without<Anchored>, Without<Anchor>),
 }

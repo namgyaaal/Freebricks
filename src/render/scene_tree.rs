@@ -1,4 +1,4 @@
-use std::{borrow::Cow, u16};
+use std::{borrow::Cow, collections::VecDeque, u16};
 
 /*
 
@@ -7,7 +7,7 @@ use std::{borrow::Cow, u16};
 */
 use crate::{
     common::asset_cache::AssetCache,
-    ecs::{parts::*, render::RenderCleanup},
+    ecs::{parts::*, render::BufferIndex},
     render::{
         bricks::*,
         camera::*,
@@ -29,6 +29,7 @@ pub struct SceneTree {
     pub scene_bg: wgpu::BindGroup,
     pub texture_bg: wgpu::BindGroup,
     pub bricks: Vec<BrickUniform>,
+    pub clean_queue: VecDeque<u32>,
 }
 
 impl SceneTree {
@@ -241,6 +242,7 @@ impl SceneTree {
             mapped_at_creation: false,
         });
 
+        world.add_observer(Self::handle_index_removal);
         world.insert_resource(Self {
             pipeline: render_pipeline,
             brick_vb: vb,
@@ -249,38 +251,46 @@ impl SceneTree {
             scene_bg: scene_kit_group,
             texture_bg: texture_group,
             bricks: bricks,
+            clean_queue: VecDeque::new(),
         });
+    }
+
+    pub fn handle_index_removal(
+        trigger: Trigger<OnRemove, BufferIndex>,
+        indices: Query<&BufferIndex>,
+        mut st: ResMut<SceneTree>,
+    ) {
+        let Ok(b_index) = indices.get(trigger.target()) else {
+            return;
+        };
+
+        let Some(index) = b_index.0 else {
+            return;
+        };
+        st.clean_queue.push_back(index);
     }
 
     /// Adjust possible instance and uniform buffers on event of objects being deleted
     pub fn remove_bricks(
         mut st: ResMut<SceneTree>,
         mut query: Query<QPartRenderUpdate>,
-        mut er: EventReader<RenderCleanup>,
+        //mut er: EventReader<RenderCleanup>,
     ) {
-        let bricks = &mut st.bricks;
-        // Probably unoptimized, figure out better way to handle this.
-        // If we have a lot of bricks it'll go through entire vector and reassign them!!
-
-        let mut indices = Vec::new();
-        for bi in er.read() {
-            if let Some(i) = bi.buffer_index.0 {
-                indices.push(i);
-            }
-        }
-
-        if indices.len() == 0 {
+        if st.clean_queue.is_empty() {
             return;
         }
 
+        let indices: Vec<u32> = st.clean_queue.drain(..).collect();
+
         let mut index: u32 = 0;
-        bricks.retain_mut(|_| {
+        st.bricks.retain_mut(|_| {
             let remove = !indices.contains(&index);
             index += 1;
             remove
         });
 
-        let mut index: u32 = 0;
+        index = 0;
+
         for mut bi in query.iter_mut() {
             bi.buffer_index.0 = Some(index);
             index += 1;

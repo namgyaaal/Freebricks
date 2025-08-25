@@ -3,15 +3,20 @@ use std::collections::VecDeque;
 
 use crate::{
     ecs::{
-        common::{Position, Rotation, Size},
+        common::{Position, Size},
         model::*,
         parts::*,
-        physics::{Anchor, Anchored, Physical},
+        physics::{Anchor, Anchored},
     },
-    physics::physics_state::PhysicsState,
+    physics::AnchorMap,
+    utils::graph::is_connected,
 };
 use bevy_ecs::prelude::*;
-use petgraph::{matrix_graph::UnMatrix, prelude::UnGraphMap, visit::NodeIndexable};
+use petgraph::{
+    matrix_graph::UnMatrix,
+    prelude::UnGraphMap,
+    visit::{IntoNodeIdentifiers, NodeIndexable, VisitMap, Visitable},
+};
 
 /// Function for seeing if bricks snap together
 ///
@@ -59,7 +64,7 @@ fn touch_check(
 /// Given a world with bricks, subdivide into owned and not owned and insert models
 pub fn build_models(
     mut commands: Commands,
-    mut state: ResMut<PhysicsState>,
+    mut anchors: ResMut<AnchorMap>,
     parts: Query<QPartWorldInit>,
     is_anchor: Query<&Anchor>,
 ) {
@@ -142,8 +147,13 @@ pub fn build_models(
         let mut queue = VecDeque::from([start_node]);
         // Graph traversal
         while let Some(node) = queue.pop_front() {
+            let a_info = part_info.get(node.index()).unwrap();
+            if !subgraph.contains_node(a_info.0) {
+                subgraph.add_node(a_info.0);
+                part_set.insert(a_info.0);
+            }
+
             for (a, b, &anchored) in graph.edges(node) {
-                let a_info = part_info.get(a.index()).unwrap();
                 let b_info = part_info.get(b.index()).unwrap();
 
                 *dirty.get_mut(a.index()).unwrap() = true;
@@ -192,7 +202,7 @@ pub fn build_models(
         /*
            Handle bricks under a model
         */
-        } else {
+        } else if set.len() > 1 {
             let entities: Vec<Entity> = set.clone().into_iter().collect();
 
             // Collect our entities that attached to anchors
@@ -213,9 +223,9 @@ pub fn build_models(
 
             commands
                 .spawn(Model {
-                    set: set,
                     graph: graph,
-                    anchored: anchored,
+                    anchors: HashSet::from_iter(anchors.keys().cloned()),
+                    dirty: false,
                 })
                 .add_children(&entities);
         }
@@ -228,5 +238,87 @@ pub fn build_models(
         }
     }
     // Save anchor sources
-    state.anchor_sources = anchor_sources;
+    anchors.anchors = anchor_sources;
+}
+
+pub fn handle_part_of_model_deletion(
+    trigger: Trigger<OnRemove, ChildOf>,
+    child_of: Query<&ChildOf>,
+    mut models: Query<QModelUpdate>,
+) {
+    let child_id = trigger.target();
+    let parent_id = child_of
+        .get(child_id)
+        .expect("Couldn't get parent id in handle_model_mutation")
+        .0;
+
+    let Ok(mut item) = models.get_mut(parent_id) else {
+        return;
+    };
+    item.model.graph.remove_node(child_id);
+    item.model.dirty = true;
+}
+
+pub fn handle_model_transform(mut commands: Commands, models: Query<QModel, Changed<Model>>) {
+    for item in models {
+        let id = item.entity;
+        let graph = &item.model.graph;
+        if !item.model.dirty && is_connected(graph) {
+            continue;
+        }
+
+        let mut submodels = Vec::new();
+
+        let mut visited = graph.visit_map();
+        for start_node in item.model.graph.node_identifiers() {
+            if visited.is_visited(&start_node) {
+                continue;
+            }
+
+            let mut subgraph: UnGraphMap<Entity, ()> = UnGraphMap::new();
+            let mut subset = HashSet::new();
+
+            let mut stack = vec![start_node];
+            visited.visit(start_node);
+
+            while let Some(node) = stack.pop() {
+                subgraph.add_node(node);
+                subset.insert(node);
+
+                for neighbor in graph.neighbors(node) {
+                    if !visited.is_visited(&neighbor) {
+                        subgraph.add_node(neighbor);
+                        subset.insert(neighbor);
+
+                        visited.visit(neighbor);
+                        stack.push(neighbor);
+                    }
+                    subgraph.add_edge(node, neighbor, ());
+                }
+            }
+
+            let subanchors: HashSet<Entity> = {
+                let x = subset
+                    .iter()
+                    .cloned()
+                    .filter(|&x| item.model.anchors.contains(&x));
+                HashSet::from_iter(x)
+            };
+            submodels.push((subgraph, subset, subanchors));
+        }
+
+        commands.entity(id).remove_children(item.children).despawn();
+
+        for (subgraph, subset, subanchors) in submodels {
+            if subgraph.node_count() > 1 {
+                commands
+                    .spawn(Model {
+                        graph: subgraph,
+                        anchors: subanchors,
+                        dirty: false,
+                    })
+                    .add_children(&Vec::from_iter(subset));
+            }
+        }
+    }
 }

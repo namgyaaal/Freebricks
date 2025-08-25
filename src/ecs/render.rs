@@ -25,8 +25,3 @@ impl Default for RenderMode {
         RenderMode(RenderModeOption::None)
     }
 }
-
-#[derive(Event)]
-pub struct RenderCleanup {
-    pub buffer_index: BufferIndex,
-}

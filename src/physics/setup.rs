@@ -3,10 +3,9 @@ use std::ops::DerefMut;
 use crate::{
     ecs::{
         model::{FModelAdd, QModel},
-        parts::{FPartAdd, Part},
+        parts::FPartAdd,
         physics::{
-            Anchor, Anchored, BodyHandle, QPhysics, QPhysicsItem, QPhysicsReadOnly,
-            QPhysicsReadOnlyItem, ShapeHandle,
+            Anchor, BodyHandle, FAnchored, FUnanchored, QPhysics, QPhysicsReadOnlyItem, ShapeHandle,
         },
     },
     physics::physics_state::PhysicsState,
@@ -18,31 +17,29 @@ use rapier3d::prelude::*;
 /// There are three types of parts we need to worry about.
 ///     (1) Unanchored parts connected to anchors
 ///     (2) Unanchored parts not connnected to anchors
-///     (3) Anchored parts
-/// Argument snapped handles (1) while unsnapped handles (2) and (3).
+///     (3) Anchor parts  
 ///
 /// Because rapier3d supports rigidbody-less colliders, we give (3) colliders only while (1) and (2) get rigid bodies alongside
 ///     colliders. This saves performance if we have a scene with a lot of parts that are anchored, since they don't need rigid bodies.
 pub fn setup_parts(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,
-    snapped: Query<QPhysics, (Without<ChildOf>, With<Anchored>, FPartAdd)>,
-    unsnapped: Query<QPhysics, (Without<ChildOf>, Without<Anchored>, FPartAdd)>,
-    is_anchor: Query<&Anchor>,
+    anchored: Query<QPhysics, (Without<ChildOf>, FAnchored, FPartAdd)>,
+    unanchored: Query<QPhysics, (Without<ChildOf>, FUnanchored, FPartAdd)>,
+    anchor: Query<QPhysics, (Without<ChildOf>, With<Anchor>, FPartAdd)>,
 ) {
     let state = state.deref_mut();
 
-    // Anchored
-    for part in &snapped {
+    for part in &anchored {
         build_body(&mut commands, state, part, RigidBodyBuilder::fixed());
     }
-    // Anchors and unanchored
-    for part in &unsnapped {
-        if is_anchor.get(part.entity).is_ok() {
-            build_shape(&mut commands, state, part);
-        } else {
-            build_body(&mut commands, state, part, RigidBodyBuilder::dynamic());
-        }
+
+    for part in &unanchored {
+        build_body(&mut commands, state, part, RigidBodyBuilder::dynamic());
+    }
+
+    for part in &anchor {
+        build_shape(&mut commands, state, part);
     }
 }
 
@@ -51,17 +48,18 @@ pub fn setup_models(
     mut state: ResMut<PhysicsState>,
     models: Query<QModel, FModelAdd>,
     parts: Query<QPhysics>,
+    children: Query<&Children>,
 ) -> Result<()> {
     let state = state.deref_mut();
 
     for item in models {
         let mut shapes = Vec::new();
-        for &child_id in item.children {
+        for &child_id in children.get(item.entity)? {
             let child = parts.get(child_id)?;
             let shape = get_shape(&child, true);
             shapes.push((child_id, shape));
         }
-        let body = if item.model.anchored.is_empty() {
+        let body = if item.model.anchors.is_empty() {
             RigidBodyBuilder::dynamic()
         } else {
             RigidBodyBuilder::fixed()
