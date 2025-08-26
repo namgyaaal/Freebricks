@@ -1,5 +1,8 @@
 use bevy_ecs::prelude::*;
-use freebricks::ecs::model::Model;
+use freebricks::{
+    ecs::{model::Model, parts::Part},
+    physics::AnchorMap,
+};
 use glam::Vec3;
 use rapier3d::prelude::*;
 mod test_utils;
@@ -327,4 +330,197 @@ pub fn model_into_models_with_anchor() {
             body_check(&mut world, message, model_id, RigidBodyType::Fixed);
         }
     }
+}
+
+#[test]
+pub fn split_into_alot() {
+    let message = "Testing splitting model into a lot of models";
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let split_id = spawn_ps(
+        &mut world,
+        false,
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(20.0, 1.0, 20.0),
+    );
+    let positions = vec![
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 3.0, 0.0),
+        Vec3::new(0.0, 4.0, 0.0),
+    ];
+
+    let submodels = 4;
+    for i in 0..submodels {
+        let z = ((i as i32) - (submodels as i32) / 2) as f32 * 4.0;
+
+        let _ = positions
+            .iter()
+            .map(|position| spawn_p(&mut world, false, *position + Vec3::new(0.0, 0.0, z)))
+            .collect::<Vec<Entity>>();
+    }
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let models = get_models(&mut world);
+
+    assert_eq!(models.len(), 1, "{} - Model doesn't exist", message);
+    let model_id = *models.first().unwrap();
+
+    guarantee_model(
+        &mut world,
+        message,
+        model_id,
+        4 * submodels + 1,
+        0,
+        4 * submodels,
+    );
+
+    world.despawn(split_id);
+    sched_update.run(&mut world);
+
+    let models = get_models(&mut world);
+    assert_eq!(
+        models.len(),
+        submodels,
+        "{} - There aren't {} models",
+        message,
+        submodels
+    );
+
+    for model_id in models {
+        guarantee_model(&mut world, message, model_id, 4, 0, 3);
+        body_check(&mut world, message, model_id, RigidBodyType::Dynamic);
+    }
+}
+
+#[test]
+pub fn model_delete() {
+    let message = "Testing deleting a model and its parts";
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let positions = vec![
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 3.0, 0.0),
+    ];
+
+    let _: Vec<Entity> = positions
+        .iter()
+        .map(|position| spawn_p(&mut world, false, *position))
+        .collect();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let model_id = *get_models(&mut world).first().unwrap();
+
+    world.despawn(model_id);
+
+    sched_update.run(&mut world);
+
+    assert_eq!(
+        world.query::<&Part>().iter(&world).len(),
+        0,
+        "{} - There are still parts",
+        message,
+    );
+    assert_eq!(
+        world.query::<&Model>().iter(&world).len(),
+        0,
+        "{} - There are still models",
+        message,
+    );
+}
+
+#[test]
+pub fn model_destructure() {
+    let message = "Testing deleting a model but not its parts";
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let positions = vec![
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 3.0, 0.0),
+    ];
+
+    let children: Vec<Entity> = positions
+        .iter()
+        .map(|position| spawn_p(&mut world, false, *position))
+        .collect();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let model_id = *get_models(&mut world).first().unwrap();
+
+    world.entity_mut(model_id).remove_children(&children);
+    world.despawn(model_id);
+
+    sched_update.run(&mut world);
+
+    assert_eq!(
+        world.query::<&Part>().iter(&world).len(),
+        4,
+        "{} - Parts mismatch",
+        message,
+    );
+    assert_eq!(
+        world.query::<&Model>().iter(&world).len(),
+        0,
+        "{} - There are still models",
+        message,
+    );
+}
+
+#[test]
+pub fn model_delete_by_anchor() {
+    let message = "Testing deleting a model and its parts but it was touching an anchor";
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let anchor_id = spawn_p(&mut world, true, Vec3::new(0.0, 4.0, 0.0));
+
+    let positions = vec![
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 3.0, 0.0),
+    ];
+
+    let _: Vec<Entity> = positions
+        .iter()
+        .map(|position| spawn_p(&mut world, false, *position))
+        .collect();
+
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    let model_id = *get_models(&mut world).first().unwrap();
+
+    world.despawn(model_id);
+
+    sched_update.run(&mut world);
+
+    assert_eq!(
+        world.query::<&Part>().iter(&world).len(),
+        1,
+        "{} - Parts mismatch",
+        message,
+    );
+    assert_eq!(
+        world.query::<&Model>().iter(&world).len(),
+        0,
+        "{} - There are still models",
+        message,
+    );
+
+    let anchor_map = &world
+        .get_resource::<AnchorMap>()
+        .expect("Couldn't get anchor map")
+        .anchors;
+
+    assert_eq!(anchor_map.len(), 0, "{} - Anchor mismatch", message);
 }

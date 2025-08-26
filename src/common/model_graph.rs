@@ -62,6 +62,8 @@ fn touch_check(
 }
 
 /// Given a world with bricks, subdivide into owned and not owned and insert models
+/// This is a very complex system, it will produce the models anchors and anchored.
+/// It only requires a world full of bricks with tags Physical/Anchor specifying their physics status/whether or not they're anchored.
 pub fn build_models(
     mut commands: Commands,
     mut anchors: ResMut<AnchorMap>,
@@ -241,6 +243,8 @@ pub fn build_models(
     anchors.anchors = anchor_sources;
 }
 
+/// Observer for when a part is deleted. Removes it from the graph.
+/// The actual graph handling is done in handle_model_transform, where it subdivides if necessary.
 pub fn handle_part_of_model_deletion(
     trigger: Trigger<OnRemove, ChildOf>,
     child_of: Query<&ChildOf>,
@@ -259,11 +263,18 @@ pub fn handle_part_of_model_deletion(
     item.model.dirty = true;
 }
 
-pub fn handle_model_transform(mut commands: Commands, models: Query<QModel, Changed<Model>>) {
-    for item in models {
+/// When a model is changed and dirty flag is set, this system traverses the model to see if it is
+///     connected. If it isn't, it subdivides the model into subgraphs that inherit the children and
+///     deletes itself.
+///
+/// This only handles the model graph structures and making new models.
+/// The physics is done via PhysicState's handle_subparts, handle_submodels.
+pub fn handle_model_transform(mut commands: Commands, models: Query<QModelUpdate, Changed<Model>>) {
+    for mut item in models {
         let id = item.entity;
         let graph = &item.model.graph;
         if !item.model.dirty && is_connected(graph) {
+            item.model.dirty = false;
             continue;
         }
 
@@ -276,7 +287,7 @@ pub fn handle_model_transform(mut commands: Commands, models: Query<QModel, Chan
             }
 
             let mut subgraph: UnGraphMap<Entity, ()> = UnGraphMap::new();
-            let mut subset = HashSet::new();
+            let mut subset = HashSet::new(); // For subdiving children relations later on 
 
             let mut stack = vec![start_node];
             visited.visit(start_node);
@@ -307,7 +318,10 @@ pub fn handle_model_transform(mut commands: Commands, models: Query<QModel, Chan
             submodels.push((subgraph, subset, subanchors));
         }
 
-        commands.entity(id).remove_children(item.children).despawn();
+        commands
+            .entity(id)
+            .remove_children(&item.children)
+            .despawn();
 
         for (subgraph, subset, subanchors) in submodels {
             if subgraph.node_count() > 1 {

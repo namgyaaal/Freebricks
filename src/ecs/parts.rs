@@ -48,6 +48,7 @@ impl Default for StudInfo {
 
 #[derive(QueryData)]
 #[query_data(derive(Debug))]
+/// Standard Part Query
 pub struct QPart {
     pub entity: Entity,
     pub part: &'static Part,
@@ -62,6 +63,7 @@ pub struct QPart {
 
 #[derive(QueryData)]
 #[query_data(derive(Debug))]
+/// Part Query needed for setup functionality on scene start.
 pub struct QPartWorldInit {
     pub entity: Entity,
     pub part: &'static Part,
@@ -88,6 +90,7 @@ pub struct QPartRenderUpdate {
 
 #[derive(QueryData)]
 #[query_data(mutable, derive(Debug))]
+/// Query with mutable position and rotation. Used for physics/anything else to push updates onto the position and rotation components
 pub struct QPartWorldUpdate {
     pub entity: Entity,
     pub position: &'static mut Position,
@@ -101,11 +104,13 @@ pub struct QPartWorldUpdate {
 */
 
 #[derive(QueryFilter)]
+/// On Part Add Filter  
 pub struct FPartAdd {
     _c: Added<Part>,
 }
 
 #[derive(QueryFilter)]
+/// Filter for when any parts relevant to rendering change
 pub struct FPartChange {
     _c: With<Part>,
     _or: Or<(

@@ -7,11 +7,17 @@ use rapier3d::{na::Isometry, prelude::*};
 use crate::{
     ecs::{
         model::{FModelAdd, Model, QModel},
-        physics::{Anchor, Anchored, BodyHandle, ShapeHandle},
+        physics::{Anchored, BodyHandle, ShapeHandle},
     },
     physics::{AnchorMap, PhysicsState},
 };
 
+/// On a model transform, if a node is removed and it cuts s.t. some nodes are isolated,
+///     this system handles giving them proper physics components and registering them
+///     with the physics system.
+/// e.g., a model of 3 bricks cuts in the middle, the two other bricks become independent rigid bodies.
+///
+/// This should only be called after handle_model_transform in order.
 pub fn handle_subpart(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,
@@ -26,7 +32,7 @@ pub fn handle_subpart(
         if shapes.get(part_id).is_err() || new_parent.get(part_id).is_ok() {
             continue;
         }
-        let shape_handle = shapes.get(part_id).unwrap().0;
+        let shape_handle = shapes.get(part_id).expect("Couldn't get shape handle").0;
 
         let builder = {
             if anchored.get(part_id).is_ok() {
@@ -60,6 +66,7 @@ pub fn handle_subpart(
             .colliders
             .get_mut(shape_handle)
             .ok_or("Couldn't get collider")?;
+        // Since rigid body has translation and rotation now, we set shape to 0.
         shape.set_position(Isometry::identity());
 
         commands.entity(part_id).insert(BodyHandle(new_handle));
@@ -68,6 +75,12 @@ pub fn handle_subpart(
     Ok(())
 }
 
+/// On a model transform, if a node is removed and it cuts s.t. subgraphs are produced,
+///     this system handles giving them proper physics components and registering them
+///     with the physics system.
+/// e.g., a model of 5 bricks cuts in the middle, the pair of twobricks become independent models.
+///
+/// This should only be called after handle_model_transform in order.
 pub fn handle_submodel(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,
@@ -96,6 +109,10 @@ pub fn handle_submodel(
 
         for &child in item.children {
             let mut shape_handle = shapes.get_mut(child)?;
+
+            // For now I remove and re-insert shapes, this is what I found working.
+            // Not sure if set_parent() works with multi-collider rigid bodies, it was buggy
+            // This can be fixed in the future if it is a problem.
             let shape = state
                 .colliders
                 .remove(
@@ -118,6 +135,10 @@ pub fn handle_submodel(
     Ok(())
 }
 
+/// Function to clear anchor's delete_queue after the observer on anchor part delete pushes to it.
+/// Since bevy_ecs doesn't support many-to-many, this just goes through anchored parts and handles
+///     independent ones and ones under model. Actual physics updating happens in handle_*_unanchored,
+///     this just interacts with anchor/anchored components
 pub fn handle_anchor_queue(
     mut commands: Commands,
     mut anchor_map: ResMut<AnchorMap>,
@@ -130,6 +151,7 @@ pub fn handle_anchor_queue(
     }
     let anchor_map = anchor_map.deref_mut();
 
+    // Collection of anchors and their anchored parts after anchor was removed.
     let mut changed_parts = HashMap::new();
 
     let anchors: Vec<Entity> = anchor_map.delete_queue.drain(..).collect();
@@ -148,11 +170,13 @@ pub fn handle_anchor_queue(
 
     for (changed_part_id, anchors) in changed_parts {
         let anchored = anchoreds.get_mut(changed_part_id)?;
+        // Anchored part could be anchored to multiple anchors
         if anchored.0.len() != 0 {
             continue;
         }
         commands.entity(changed_part_id).remove::<Anchored>();
 
+        // Part of model handling beyond here
         let Ok(child_of) = child.get(changed_part_id) else {
             continue;
         };
@@ -167,10 +191,11 @@ pub fn handle_anchor_queue(
     Ok(())
 }
 
-/// Only handle parts that aren't under modes
-pub fn handle_part_unanchor(
+/// For parts not under a model, if unanchored then change physics internals.
+/// Should be called after handle_anchor_queue in order.
+pub fn handle_part_unanchored(
     mut state: ResMut<PhysicsState>,
-    mut removed: RemovedComponents<Anchor>,
+    mut removed: RemovedComponents<Anchored>,
     bodies: Query<&BodyHandle, Without<ChildOf>>,
 ) -> Result<()> {
     for part_id in removed.read() {
@@ -190,7 +215,10 @@ pub fn handle_part_unanchor(
     Ok(())
 }
 
-pub fn handle_model_unanchor(
+/// For models that have been modified, check if now unanchored.
+/// If unanchored, handle physics internals.
+/// Should be called after handle_anchor_queue in order.
+pub fn handle_model_unanchored(
     mut state: ResMut<PhysicsState>,
     modified_models: Query<(Entity, &Model), Changed<Model>>,
     bodies: Query<&BodyHandle>,

@@ -8,9 +8,11 @@ use std::fmt::Debug;
 use crate::ecs::physics::BodyHandle;
 
 #[derive(Component)]
+/// Component for model. Keeps track of parts as an undirected graph and keeps track of anchors connected to parts with a hashset.
 pub struct Model {
     pub graph: UnGraphMap<Entity, ()>,
     pub anchors: HashSet<Entity>,
+    // Set to true when parts are deleted, prevents graph traversals when the graph isn't modified.
     pub dirty: bool,
 }
 
@@ -29,6 +31,7 @@ impl Debug for Model {
 
 #[derive(QueryData)]
 #[query_data(derive(Debug))]
+/// Standard Model Query
 pub struct QModel {
     pub entity: Entity,
     pub model: &'static Model,
@@ -37,6 +40,7 @@ pub struct QModel {
 
 #[derive(QueryData)]
 #[query_data(mutable, derive(Debug))]
+/// Standard Mutable Model Query
 pub struct QModelUpdate {
     pub entity: Entity,
     pub model: &'static mut Model,
@@ -45,6 +49,7 @@ pub struct QModelUpdate {
 
 #[derive(QueryData)]
 #[query_data(derive(Debug))]
+/// Model Query + RigidBody Query
 pub struct QModelPhysics {
     pub entity: Entity,
     pub model: &'static Model,
@@ -59,6 +64,7 @@ pub struct QModelPhysics {
 */
 
 #[derive(QueryFilter)]
+/// On Model Add Filter
 pub struct FModelAdd {
     _c: Added<Model>,
 }

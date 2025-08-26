@@ -43,6 +43,11 @@ pub fn setup_parts(
     }
 }
 
+/// Build physics information for parts under a model.
+/// Goes through all added models and gives them dynamic or fixed rigid bodies based on whether
+///     or not they have anchors.
+/// Note that all parts under a model have ShapeHandles while the model has a BodyHandle, where
+///     independent parts have both.
 pub fn setup_models(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,

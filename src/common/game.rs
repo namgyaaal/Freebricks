@@ -131,12 +131,13 @@ impl Game {
             Color([rand::random(), rand::random(), rand::random(), 255]),
         ));
 
+        /*
         world.spawn((
             Part::default(),
             Position(Vec3::new(0.0, -9.0, 0.0)),
             Physical,
             Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));
+        ));*/
 
         let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
 

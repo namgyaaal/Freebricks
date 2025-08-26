@@ -5,7 +5,7 @@ use std::ops::DerefMut;
 use crate::ecs::common::{Position, Rotation};
 use crate::ecs::model::QModel;
 use crate::physics::transform::{
-    handle_anchor_queue, handle_model_unanchor, handle_part_unanchor, handle_submodel,
+    handle_anchor_queue, handle_model_unanchored, handle_part_unanchored, handle_submodel,
     handle_subpart,
 };
 use crate::{
@@ -106,8 +106,8 @@ impl PhysicsState {
             handle_subpart,
             handle_submodel,
             handle_anchor_queue,
-            handle_part_unanchor,
-            handle_model_unanchor,
+            handle_part_unanchored,
+            handle_model_unanchored,
             Self::update_bricks,
         )
             .chain()

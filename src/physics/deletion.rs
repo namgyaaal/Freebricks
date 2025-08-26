@@ -3,15 +3,20 @@ use std::ops::DerefMut;
 use bevy_ecs::prelude::*;
 
 use crate::{
-    ecs::physics::{BodyHandle, ShapeHandle},
+    ecs::physics::{Anchored, BodyHandle, ShapeHandle},
     physics::{AnchorMap, physics_state::PhysicsState},
 };
 
+/// Observer function for when a shape is removed. Removes it from the colliderset.
+/// If it's an anchor, this function pushes the removed entity onto anchormap's deletion queue to be processed
+///     when handle_anchor_queue() is called.
+/// If it's anchored, this function will remove itself from the relevant anchormap keys.
 pub fn handle_shape_removal(
     trigger: Trigger<OnRemove, ShapeHandle>,
     mut state: ResMut<PhysicsState>,
     mut anchor_map: ResMut<AnchorMap>,
     shapes: Query<&ShapeHandle>,
+    anchoreds: Query<&Anchored>,
 ) {
     let entity = trigger.target();
 
@@ -30,11 +35,29 @@ pub fn handle_shape_removal(
     let anchor_map = anchor_map.deref_mut();
     let anchors = &mut anchor_map.anchors;
 
+    // Handle if anchor
     if anchors.contains_key(&entity) {
         anchor_map.delete_queue.push_back(entity);
     }
+    // Handle if anchored
+    if let Ok(anchored) = anchoreds.get(entity) {
+        for anchor in &anchored.0 {
+            anchors.entry(*anchor).and_modify(|set| {
+                set.remove(&entity);
+            });
+
+            if let Some(set) = anchors.get(anchor)
+                && set.is_empty()
+            {
+                anchors.remove(anchor);
+            }
+        }
+    }
 }
 
+/// Observer function for when a rigid body is removed.
+/// Has specific logic for handling removing a model by keeping it's children or not by whether or not the
+///     Children component exists.
 pub fn handle_body_removal(
     trigger: Trigger<OnRemove, BodyHandle>,
     mut state: ResMut<PhysicsState>,
