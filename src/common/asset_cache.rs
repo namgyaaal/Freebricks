@@ -73,7 +73,8 @@ impl AssetCache {
                             .skip(1)
                             .collect::<PathBuf>()
                             .to_string_lossy()
-                            .to_string();
+                            .to_string()
+                            .replace("\\", "/"); // Generalize path format 
 
                         info!("Inserting asset {}", new_name);
                         map.insert(new_name, asset);
