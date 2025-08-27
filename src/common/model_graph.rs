@@ -46,9 +46,8 @@ fn touch_check(
         return false;
     }
 
-    // Previous checks collision, this more directly checks if they actually "snap" together.
-    // lol this is a mess
-
+    // Check if they actually touch with same studs
+    // Very brittle and only y-axis for now
     let a_b_snap = (f32::abs(a_min.y - b_max.y) < f32::EPSILON)
         && ((part_b.bottom == StudType::Inlet && part_a.top == StudType::Outlet)
             || (part_b.bottom == StudType::Outlet && part_a.top == StudType::Inlet));
@@ -56,9 +55,17 @@ fn touch_check(
     let b_a_snap = (f32::abs(a_max.y - b_min.y) < f32::EPSILON)
         && ((part_a.bottom == StudType::Inlet && part_b.top == StudType::Outlet)
             || (part_a.bottom == StudType::Outlet && part_b.top == StudType::Inlet));
-    // Need some check if studs actually align
 
-    return a_b_snap || b_a_snap;
+    // Check alignment
+    let a_offset_x = a_min.x % 1.0;
+    let a_offset_z = a_min.z % 1.0;
+    let b_offset_x = b_min.x % 1.0;
+    let b_offset_z = b_min.z % 1.0;
+
+    let align = f32::abs(a_offset_x - b_offset_x) < f32::EPSILON
+        && f32::abs(a_offset_z - b_offset_z) < f32::EPSILON;
+
+    return (a_b_snap || b_a_snap) && align;
 }
 
 /// Given a world with bricks, subdivide into owned and not owned and insert models

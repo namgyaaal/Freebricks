@@ -7,7 +7,7 @@ use freebricks::{
     ecs::{
         common::{Position, Size},
         model::Model,
-        parts::Part,
+        parts::{Part, StudInfo},
         physics::{Anchor, Anchored, BodyHandle, Physical, ShapeHandle},
     },
     physics::PhysicsState,
@@ -226,6 +226,19 @@ pub fn spawn_ps(world: &mut World, anchor: bool, position: Vec3, size: Vec3) -> 
     } else {
         world
             .spawn((Part::default(), Physical, Position(position), Size(size)))
+            .id()
+    }
+}
+
+#[allow(dead_code)]
+pub fn spawn_pstuds(world: &mut World, anchor: bool, position: Vec3, studs: StudInfo) -> Entity {
+    if anchor {
+        world
+            .spawn((Part::default(), Anchor, Position(position), studs))
+            .id()
+    } else {
+        world
+            .spawn((Part::default(), Physical, Position(position), studs))
             .id()
     }
 }

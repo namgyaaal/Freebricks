@@ -333,6 +333,42 @@ pub fn model_into_models_with_anchor() {
 }
 
 #[test]
+pub fn split_into_three() {
+    let message = "Test splitting a model into 3 models due to 2 parts being deleted";
+    let (mut world, mut sched_start, mut sched_update) = util_setup();
+
+    let split_id_one = spawn_p(&mut world, false, Vec3::new(0.0, 3.0, 0.0));
+    let split_id_two = spawn_p(&mut world, false, Vec3::new(0.0, 6.0, 0.0));
+    let positions = vec![
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::new(0.0, 4.0, 0.0),
+        Vec3::new(0.0, 5.0, 0.0),
+        Vec3::new(0.0, 7.0, 0.0),
+        Vec3::new(0.0, 8.0, 0.0),
+    ];
+    let _ = positions
+        .iter()
+        .map(|position| spawn_p(&mut world, false, *position))
+        .collect::<Vec<Entity>>();
+    sched_start.run(&mut world);
+    sched_update.run(&mut world);
+
+    world.despawn(split_id_one);
+    world.despawn(split_id_two);
+
+    sched_update.run(&mut world);
+
+    let models = get_models(&mut world);
+    assert_eq!(models.len(), 3, "{} - There aren't 3 models", message,);
+
+    for model_id in models {
+        guarantee_model(&mut world, message, model_id, 2, 0, 1);
+        body_check(&mut world, message, model_id, RigidBodyType::Dynamic);
+    }
+}
+
+#[test]
 pub fn split_into_alot() {
     let message = "Testing splitting model into a lot of models";
     let (mut world, mut sched_start, mut sched_update) = util_setup();
