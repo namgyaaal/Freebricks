@@ -15,24 +15,24 @@ impl Part {
         rotation: &Rotation,
         size: &Size,
         color: &Color,
-    ) -> BrickUniform {
+    ) -> PartUniform {
         let transform = Affine3A::from_scale_rotation_translation(size.0, rotation.0, position.0);
 
         let normals = transform.matrix3.inverse().transpose().to_cols_array_2d();
 
-        BrickUniform {
+        PartUniform {
             model: transform.to_cols_array_2d(),
             normal: normals,
             color: color.0,
             size: size.0.to_array(),
-            stud_layout: 0x210000, // To-do, conversion func
+            stud_layout: 0x001020, // To-do, conversion func
         }
     }
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct BrickVertex {
+pub struct PartVertex {
     pub position: [f32; 3],
     pub normals: [f32; 3],
     pub tex_coords: [f32; 2],
@@ -41,7 +41,7 @@ pub struct BrickVertex {
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
-pub struct BrickUniform {
+pub struct PartUniform {
     pub model: [[f32; 3]; 4],
     pub normal: [[f32; 3]; 3],
     pub color: [u8; 4],
@@ -49,12 +49,12 @@ pub struct BrickUniform {
     pub stud_layout: u32,
 }
 
-impl BrickVertex {
+impl PartVertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem::size_of;
 
         wgpu::VertexBufferLayout {
-            array_stride: size_of::<BrickVertex>() as wgpu::BufferAddress,
+            array_stride: size_of::<PartVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -82,12 +82,12 @@ impl BrickVertex {
     }
 }
 
-impl BrickUniform {
+impl PartUniform {
     pub fn desc_instancing() -> wgpu::VertexBufferLayout<'static> {
         use std::mem::size_of;
 
         wgpu::VertexBufferLayout {
-            array_stride: size_of::<BrickUniform>() as wgpu::BufferAddress,
+            array_stride: size_of::<PartUniform>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 // Affine transform
@@ -155,160 +155,160 @@ impl BrickUniform {
     }
 }
 
-pub const VERTICES: &[BrickVertex] = &[
+pub const BRICK_VERTICES: &[PartVertex] = &[
     // Front face (Z+)
-    BrickVertex {
+    PartVertex {
         position: [-0.5, 0.5, 0.5],
         tex_coords: [0.0, 0.0],
         normals: [0.0, 0.0, 1.0],
         tex_scale: [0, 1],
     },
-    BrickVertex {
+    PartVertex {
         position: [0.5, 0.5, 0.5],
         tex_coords: [1.0, 0.0],
         normals: [0.0, 0.0, 1.0],
         tex_scale: [0, 1],
     },
-    BrickVertex {
+    PartVertex {
         position: [0.5, -0.5, 0.5],
         tex_coords: [1.0, 1.0],
         normals: [0.0, 0.0, 1.0],
         tex_scale: [0, 1],
     },
-    BrickVertex {
+    PartVertex {
         position: [-0.5, -0.5, 0.5],
         tex_coords: [0.0, 1.0],
         normals: [0.0, 0.0, 1.0],
         tex_scale: [0, 1],
-    },
-    // Right Face (X+)
-    BrickVertex {
-        position: [0.5, 0.5, 0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    BrickVertex {
-        position: [0.5, 0.5, -0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    BrickVertex {
-        position: [0.5, -0.5, -0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    BrickVertex {
-        position: [0.5, -0.5, 0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    // Back Face (Z-)
-    BrickVertex {
-        position: [0.5, 0.5, -0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    BrickVertex {
-        position: [-0.5, 0.5, -0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    BrickVertex {
-        position: [-0.5, -0.5, -0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    BrickVertex {
-        position: [0.5, -0.5, -0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    // Left Face (X-)
-    BrickVertex {
-        position: [-0.5, 0.5, -0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    BrickVertex {
-        position: [-0.5, 0.5, 0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    BrickVertex {
-        position: [-0.5, -0.5, 0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    BrickVertex {
-        position: [-0.5, -0.5, -0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    // Top Face (Y+)
-    BrickVertex {
-        position: [0.5, 0.5, -0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    BrickVertex {
-        position: [0.5, 0.5, 0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    BrickVertex {
-        position: [-0.5, 0.5, 0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    BrickVertex {
-        position: [-0.5, 0.5, -0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
     },
     // Bottom Face (Y-)
-    BrickVertex {
+    PartVertex {
         position: [0.5, -0.5, 0.5],
         tex_coords: [0.0, 0.0],
         normals: [0.0, -1.0, 0.0],
         tex_scale: [2, 0],
     },
-    BrickVertex {
+    PartVertex {
         position: [0.5, -0.5, -0.5],
         tex_coords: [1.0, 0.0],
         normals: [0.0, -1.0, 0.0],
         tex_scale: [2, 0],
     },
-    BrickVertex {
+    PartVertex {
         position: [-0.5, -0.5, -0.5],
         tex_coords: [1.0, 1.0],
         normals: [0.0, -1.0, 0.0],
         tex_scale: [2, 0],
     },
-    BrickVertex {
+    PartVertex {
         position: [-0.5, -0.5, 0.5],
         tex_coords: [0.0, 1.0],
         normals: [0.0, -1.0, 0.0],
         tex_scale: [2, 0],
+    },
+    // Back Face (Z-)
+    PartVertex {
+        position: [0.5, 0.5, -0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [0.0, 0.0, -1.0],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [-0.5, 0.5, -0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [0.0, 0.0, -1.0],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [0.0, 0.0, -1.0],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, -0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [0.0, 0.0, -1.0],
+        tex_scale: [0, 1],
+    },
+    // Top Face (Y+)
+    PartVertex {
+        position: [0.5, 0.5, -0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [0.0, 1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    PartVertex {
+        position: [0.5, 0.5, 0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [0.0, 1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    PartVertex {
+        position: [-0.5, 0.5, 0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [0.0, 1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    PartVertex {
+        position: [-0.5, 0.5, -0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [0.0, 1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    // Right Face (X+)
+    PartVertex {
+        position: [0.5, 0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [0.5, 0.5, -0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, 0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    // Left Face (X-)
+    PartVertex {
+        position: [-0.5, 0.5, -0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [-0.5, 0.5, 0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, 0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, -0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
     },
 ];
 
-pub const INDICES: &[u16] = &[
+pub const BRICK_INDICES: &[u16] = &[
     // Front face
     0, 1, 2, 0, 2, 3, // Back face
     4, 5, 6, 4, 6, 7, // Left face

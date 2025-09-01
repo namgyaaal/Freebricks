@@ -1,26 +1,19 @@
-use crate::{
-    common::state::*,
-    render::{queries::Queries, texture::*},
-};
+use crate::{common::state::*, render::texture::*};
 use anyhow::Result;
 use bevy_ecs::prelude::*;
-use enumflags2::{BitFlags, bitflags};
-use std::sync::Arc;
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 use wgpu::{RenderPass, SurfaceTexture};
 use winit::window::Window;
-
-#[bitflags]
-#[repr(u32)]
-#[derive(Copy, Clone, Debug)]
-pub enum RenderOptions {
-    RenderTimestamps = 0x01,
-}
 
 #[derive(Resource)]
 /// Resource that is used during render stage that keeps the command encoder and render pass as
 ///     bevy_ecs resources so that they can be used by systems.
-pub struct RenderPassInfo {
+pub struct FrameInfo {
     pub command: Option<wgpu::CommandEncoder>,
+    pub view: Option<wgpu::TextureView>,
     // Lifetime is dropped in this context.
     pub pass: Option<wgpu::RenderPass<'static>>,
     pub output: Option<SurfaceTexture>,
@@ -40,17 +33,15 @@ pub struct RenderState {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub pass: Option<RenderPassData>,
-
-    pub options: BitFlags<RenderOptions>,
-    pub queries: Option<Queries>,
 }
 
 impl State<RenderState> for RenderState {
     /// Shorthand to make a RenderPassInfo resource and also insert self as a resource.
     fn consume(world: &mut World, state: RenderState) {
         world.insert_resource(state);
-        world.insert_resource(RenderPassInfo {
+        world.insert_resource(FrameInfo {
             command: None,
+            view: None,
             pass: None,
             output: None,
         })
@@ -59,7 +50,7 @@ impl State<RenderState> for RenderState {
 
 impl RenderState {
     /// Given a window, create wgpu adapter/device/etc
-    pub async fn new(window: Arc<Window>, options: BitFlags<RenderOptions>) -> Result<Self> {
+    pub async fn new(window: Arc<Window>) -> Result<Self> {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -77,19 +68,10 @@ impl RenderState {
             })
             .await?;
 
-        // Check for GPU profiling.
-        let features = {
-            if options.contains(RenderOptions::RenderTimestamps) {
-                wgpu::Features::TIMESTAMP_QUERY
-            } else {
-                wgpu::Features::empty()
-            }
-        };
-
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
-                required_features: features,
+                required_features: wgpu::Features::default(),
                 required_limits: wgpu::Limits::default(),
                 //required_limits : wgpu::Limits::downlevel_defaults(),
                 memory_hints: Default::default(),
@@ -111,18 +93,10 @@ impl RenderState {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
-        };
-
-        let queries = {
-            if options.contains(RenderOptions::RenderTimestamps) {
-                Some(Queries::new(&device))
-            } else {
-                None
-            }
         };
 
         Ok(Self {
@@ -132,8 +106,6 @@ impl RenderState {
             queue: queue,
             config: config,
             pass: None, // Created on resize()
-            options: options,
-            queries: queries,
         })
     }
 
@@ -157,16 +129,12 @@ impl RenderState {
         }
     }
 
-    /// Start a render pass that can be used to render to
-    pub fn begin_pass(&mut self) -> Result<Option<RenderPassInfo>, wgpu::SurfaceError> {
+    pub fn begin_frame(&mut self) -> Result<Option<FrameInfo>, wgpu::SurfaceError> {
         self.window.request_redraw();
 
         if self.pass.is_none() {
             return Ok(None);
         }
-        // Borrow depth texture for the render pass
-        let depth_texture = &self.pass.as_mut().unwrap().depth_texture;
-
         let possible_output = self.surface.get_current_texture();
         // If error is recoverable
         match possible_output {
@@ -188,26 +156,35 @@ impl RenderState {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self
+        let encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
 
-        // Timestamp feature
-        let timestamp_writes = {
-            if self.options.contains(RenderOptions::RenderTimestamps)
-                && let Some(queries) = &self.queries
-            {
-                Some(wgpu::RenderPassTimestampWrites {
-                    query_set: &queries.set,
-                    beginning_of_pass_write_index: Some(0),
-                    end_of_pass_write_index: Some(1),
-                })
-            } else {
-                None
-            }
-        };
+        Ok(Some(FrameInfo {
+            command: Some(encoder),
+            view: Some(view),
+            pass: None,
+            output: Some(output),
+        }))
+    }
+
+    /// Start a render pass that can be used to render to
+    pub fn begin_pass(state: Res<RenderState>, mut frame: ResMut<FrameInfo>) {
+        let frame = frame.deref_mut();
+
+        let encoder = frame
+            .command
+            .as_mut()
+            .expect("begin_pass needs CommandEncoder");
+
+        let view = frame
+            .view
+            .as_ref()
+            .expect("begin_pass expects a TextureView");
+
+        let depth_texture = &state.pass.as_ref().unwrap().depth_texture;
 
         let pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Brick Render Pass"),
@@ -234,21 +211,16 @@ impl RenderState {
                 stencil_ops: None,
             }),
             occlusion_query_set: None,
-            timestamp_writes: timestamp_writes,
+            timestamp_writes: None,
         });
         let pass = RenderPass::forget_lifetime(pass);
-
-        Ok(Some(RenderPassInfo {
-            command: Some(encoder),
-            pass: Some(pass),
-            output: Some(output),
-        }))
+        frame.pass = Some(pass);
     }
 
     /// Submit render pass and empty RenderPassInfo
     /// Should only be called after begin_pass()
-    pub fn flush(state: Res<RenderState>, mut pass_info: ResMut<RenderPassInfo>) {
-        let mut encoder = pass_info
+    pub fn flush(state: Res<RenderState>, mut pass_info: ResMut<FrameInfo>) {
+        let encoder = pass_info
             .command
             .take()
             .expect("RenderState::flush(), expected encoder");
@@ -266,19 +238,8 @@ impl RenderState {
                 .expect("RenderState::flush(), expected render pass");
         }
 
-        if let Some(queries) = &state.queries {
-            queries.resolve(&mut encoder);
-        }
         state.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        if let Some(queries) = &state.queries {
-            match queries.get_timestamp(&state.device, &state.queue) {
-                None => {}
-                Some(_timestamp) => {
-                    //tracing::info!("GPU Step: {:.3}", _timestamp);
-                }
-            }
-        }
+        pass_info.view.take();
     }
 }

@@ -91,7 +91,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         modf(in.tex_coords.x).fract,
         modf(in.tex_coords.y).fract,
     );
-    let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, uv, in.stud_index);
     // Specular lighting
     let norm = normalize(in.world_normal);
 
@@ -103,7 +102,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse_strength = max(dot(norm, -light.direction), 0.0); 
     let ambient_strength = vec3<f32>(1.0, 1.0, 1.0) * 0.1;
 
-    let color = mix(vec4<f32>(in.color, 1.0), vec4<f32>(object_color.rgb, 1.0), object_color.a);
+
+    var color = vec4<f32>(in.color, 1.0);
+    // Apply stud texturing 
+    if in.stud_index > 0 {
+        let stud_diffuse = textureSample(t_diffuse, s_diffuse, uv, in.stud_index);
+        color = mix(color, vec4<f32>(stud_diffuse.rgb, 1.0), stud_diffuse.a);
+    }
     return color * vec4<f32>(ambient_strength + diffuse_strength + specular_strength, 1.0);
 }
  

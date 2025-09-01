@@ -21,6 +21,7 @@ impl Default for Rotation {
 }
 
 #[derive(Component, Debug, Deref, DerefMut)]
+#[component(immutable)]
 pub struct Size(pub Vec3);
 
 impl Default for Size {
