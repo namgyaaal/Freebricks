@@ -1,16 +1,24 @@
 /*
     Information about bricks relevant to the rendering engine.
 */
-use crate::ecs::{common::*, parts::*};
+use crate::{
+    common::types::HasPosition,
+    ecs::{common::*, parts::*},
+};
 use bytemuck::{Pod, Zeroable};
-use glam::Affine3A;
-
+use glam::{Affine3A, Vec3};
+use std::{
+    f32::{self, consts::PI},
+    sync::LazyLock,
+};
 /*
     Implementing render-related stuff here.
 */
 
 impl Part {
     pub fn to_uniform(
+        part: &Part,
+        studs: &StudInfo,
         position: &Position,
         rotation: &Rotation,
         size: &Size,
@@ -20,12 +28,18 @@ impl Part {
 
         let normals = transform.matrix3.inverse().transpose().to_cols_array_2d();
 
+        let stud_layout: u32 = match part {
+            Part::Brick => 0x001020,
+            Part::Wedge => 0x000020,
+            _ => 0,
+        };
+
         PartUniform {
             model: transform.to_cols_array_2d(),
             normal: normals,
             color: color.0,
             size: size.0.to_array(),
-            stud_layout: 0x001020, // To-do, conversion func
+            stud_layout: stud_layout,
         }
     }
 }
@@ -49,6 +63,12 @@ pub struct PartUniform {
     pub stud_layout: u32,
 }
 
+impl HasPosition for PartVertex {
+    fn get_position(&self) -> &[f32; 3] {
+        &self.position
+    }
+}
+
 impl PartVertex {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem::size_of;
@@ -57,21 +77,25 @@ impl PartVertex {
             array_stride: size_of::<PartVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
+                // Position
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                // Normals
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                // Tex Coords
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x2,
                 },
+                // Tex Scale
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 8]>() as wgpu::BufferAddress,
                     shader_location: 3,
@@ -111,12 +135,7 @@ impl PartUniform {
                     shader_location: 8,
                     format: wgpu::VertexFormat::Float32x3,
                 },
-                //wgpu::VertexAttribute {
-                //    offset: size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                //   shader_location: 8,
-                //   format: wgpu::VertexFormat::Float32x4,
-                //},
-                // Normal
+                // Normal matrix
                 wgpu::VertexAttribute {
                     offset: size_of::<[f32; 12]>() as wgpu::BufferAddress,
                     shader_location: 9,
@@ -309,11 +328,199 @@ pub const BRICK_VERTICES: &[PartVertex] = &[
 ];
 
 pub const BRICK_INDICES: &[u16] = &[
-    // Front face
-    0, 1, 2, 0, 2, 3, // Back face
-    4, 5, 6, 4, 6, 7, // Left face
-    8, 9, 10, 8, 10, 11, // Right face
-    12, 13, 14, 12, 14, 15, // Top face
-    16, 17, 18, 16, 18, 19, // Bottom face
-    20, 21, 22, 20, 22, 23,
+    0, 1, 2, 0, 2, 3, // Front
+    4, 5, 6, 4, 6, 7, // Bottom
+    8, 9, 10, 8, 10, 11, // Back
+    12, 13, 14, 12, 14, 15, // Top
+    16, 17, 18, 16, 18, 19, // Right
+    20, 21, 22, 20, 22, 23, // Left
 ];
+
+pub const WEDGE_VERTICES: &[PartVertex] = &[
+    // Front face (Z+)
+    PartVertex {
+        position: [-0.5, 0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [0.0, 0.0, 1.0],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [0.5, 0.5, 0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [0.0, 0.0, 1.0],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, 0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [0.0, 0.0, 1.0],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, 0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [0.0, 0.0, 1.0],
+        tex_scale: [0, 1],
+    },
+    // Bottom Face (Y-)
+    PartVertex {
+        position: [0.5, -0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [0.0, -1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    PartVertex {
+        position: [0.5, -0.5, -0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [0.0, -1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [0.0, -1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, 0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [0.0, -1.0, 0.0],
+        tex_scale: [2, 0],
+    },
+    // Wedge (Z-)
+    // tex_scale is redundant since no studs (TODO: something with decals?)
+    PartVertex {
+        position: [0.5, 0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [0.0, 0.707, -0.707],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [-0.5, 0.5, 0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [0.0, 0.707, -0.707],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [0.0, 0.707, -0.707],
+        tex_scale: [0, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, -0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [0.0, 0.707, -0.707],
+        tex_scale: [0, 1],
+    },
+    // Right Face (X+)
+    PartVertex {
+        position: [0.5, 0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [0.5, -0.5, 0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    // Left Face (X-)
+    PartVertex {
+        position: [-0.5, 0.5, 0.5],
+        tex_coords: [1.0, 0.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, 0.5],
+        tex_coords: [1.0, 1.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+    PartVertex {
+        position: [-0.5, -0.5, -0.5],
+        tex_coords: [0.0, 1.0],
+        normals: [-1.0, 0.0, 0.0],
+        tex_scale: [2, 1],
+    },
+];
+
+pub const WEDGE_INDICES: &[u16] = &[
+    0, 1, 2, 0, 2, 3, // Front
+    4, 5, 6, 4, 6, 7, // Bottom
+    8, 9, 10, 8, 10, 11, // Wedge
+    12, 13, 14, // Right
+    15, 16, 17, // Left
+];
+
+pub static BALL_VERTICES: LazyLock<Vec<PartVertex>> = LazyLock::new(|| {
+    // https://www.songho.ca/opengl/gl_sphere.html
+    let sectors = 36; // Longitudes 
+    let stacks = 18; // Latitudes 
+
+    let sector_step = 2.0 * PI / sectors as f32;
+    let stack_step = PI / stacks as f32;
+
+    let mut vertices: Vec<PartVertex> = Vec::new();
+
+    for i in 0..=stacks {
+        let stack_angle = (PI / 2.0) - (i as f32 * stack_step); // [pi/2 .. -pi/2]
+        let xy = stack_angle.cos();
+        let z = stack_angle.sin();
+
+        // add (sector_count + 1) vertices per stack
+        // first and last vertices have same position and normals but different texcoords
+        for j in 0..=sectors {
+            let sector_angle = j as f32 * sector_step; // [0 .. 2pi]
+            let x = xy * sector_angle.cos();
+            let y = xy * sector_angle.sin();
+
+            // Scale by 0.5 for positions
+            // Not sure texcoords are what we want, just do what he uses for now.
+            let vertex = PartVertex {
+                position: [x / 2.0, y / 2.0, z / 2.0],
+                normals: [x, y, z],
+                tex_coords: [0.0, 0.0],
+                tex_scale: [0, 0],
+            };
+            vertices.push(vertex);
+        }
+    }
+
+    vertices
+});
+
+pub static BALL_INDICES: LazyLock<Vec<u16>> = LazyLock::new(|| {
+    // https://www.songho.ca/opengl/gl_sphere.html
+    let sectors = 36; // Longitudes 
+    let stacks = 18; // Latitudes 
+
+    let mut indices: Vec<u16> = Vec::new();
+
+    for i in 0..stacks {
+        let mut k1 = i * (sectors + 1); // Beginning of current stack
+        let mut k2 = k1 + sectors + 1; // Beginning of next stack
+
+        for _j in 0..sectors {
+            if i != 0 {
+                indices.extend([k1, k1 + 1, k2].iter());
+            }
+
+            if i != (stacks - 1) {
+                indices.extend([k1 + 1, k2 + 1, k2].iter());
+            }
+
+            k1 += 1;
+            k2 += 1;
+        }
+    }
+    indices
+});

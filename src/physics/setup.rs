@@ -3,15 +3,14 @@ use std::ops::DerefMut;
 use crate::{
     ecs::{
         model::{FModelAdd, QModel},
-        parts::FPartAdd,
-        physics::{
-            Anchor, BodyHandle, FAnchored, FUnanchored, QPhysics, QPhysicsReadOnlyItem, ShapeHandle,
-        },
+        parts::{FPartAdd, Part, QPartPhysics, QPartPhysicsItem},
+        physics::{Anchor, BodyHandle, FAnchored, FUnanchored, QPhysics, ShapeHandle},
     },
-    physics::physics_state::PhysicsState,
+    physics::{physics_state::PhysicsState, utils::reduce_to_scaled_hull},
+    render::parts::WEDGE_VERTICES,
 };
 use bevy_ecs::prelude::*;
-use rapier3d::prelude::*;
+use rapier3d::{na::OPoint, prelude::*};
 
 /// Build physics information for parts not under a model.
 /// There are three types of parts we need to worry about.
@@ -24,9 +23,9 @@ use rapier3d::prelude::*;
 pub fn setup_parts(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,
-    anchored: Query<QPhysics, (Without<ChildOf>, FAnchored, FPartAdd)>,
-    unanchored: Query<QPhysics, (Without<ChildOf>, FUnanchored, FPartAdd)>,
-    anchor: Query<QPhysics, (Without<ChildOf>, With<Anchor>, FPartAdd)>,
+    anchored: Query<QPartPhysics, (Without<ChildOf>, FAnchored, FPartAdd)>,
+    unanchored: Query<QPartPhysics, (Without<ChildOf>, FUnanchored, FPartAdd)>,
+    anchor: Query<QPartPhysics, (Without<ChildOf>, With<Anchor>, FPartAdd)>,
 ) {
     let state = state.deref_mut();
 
@@ -52,7 +51,7 @@ pub fn setup_models(
     mut commands: Commands,
     mut state: ResMut<PhysicsState>,
     models: Query<QModel, FModelAdd>,
-    parts: Query<QPhysics>,
+    parts: Query<QPartPhysics>,
     children: Query<&Children>,
 ) -> Result<()> {
     let state = state.deref_mut();
@@ -89,11 +88,28 @@ pub fn setup_models(
     Helper functions
 */
 
-/// Shorthand util to get collider with relevant data in it
-fn get_shape(part: &QPhysicsReadOnlyItem, full: bool) -> Collider {
+fn get_builder(part: &QPartPhysicsItem) -> ColliderBuilder {
     let size = part.size.0 / 2.0;
 
-    let mut builder = ColliderBuilder::cuboid(size.x, size.y, size.z).restitution(0.4);
+    match part.part {
+        Part::Wedge => {
+            let points = reduce_to_scaled_hull(WEDGE_VERTICES, part.size);
+            ColliderBuilder::convex_hull(&points).expect("Internal error building convex hull")
+        }
+        Part::Ball => {
+            assert!(size.x - size.y < f32::EPSILON && size.y - size.z < f32::EPSILON);
+            ColliderBuilder::ball(size.x / 2.0)
+        }
+        Part::Brick | _ => ColliderBuilder::cuboid(size.x, size.y, size.z),
+    }
+    .restitution(0.4)
+}
+
+/// Shorthand util to get collider with relevant data in it
+fn get_shape(part: &QPartPhysicsItem, full: bool) -> Collider {
+    let size = part.size.0 / 2.0;
+
+    let mut builder = get_builder(part);
     if full {
         let pos = part.position;
         let (yaw, pitch, roll) = {
@@ -108,7 +124,7 @@ fn get_shape(part: &QPhysicsReadOnlyItem, full: bool) -> Collider {
 }
 
 /// Add component for collision shape for a given part
-fn build_shape(commands: &mut Commands, state: &mut PhysicsState, part: QPhysicsReadOnlyItem) {
+fn build_shape(commands: &mut Commands, state: &mut PhysicsState, part: QPartPhysicsItem) {
     let shape = get_shape(&part, true);
     let shape_handle = state.colliders.insert(shape);
     commands
@@ -120,7 +136,7 @@ fn build_shape(commands: &mut Commands, state: &mut PhysicsState, part: QPhysics
 fn build_body(
     commands: &mut Commands,
     state: &mut PhysicsState,
-    part: QPhysicsReadOnlyItem,
+    part: QPartPhysicsItem,
     builder: RigidBodyBuilder,
 ) {
     let pos = part.position;

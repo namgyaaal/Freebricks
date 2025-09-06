@@ -134,8 +134,8 @@ impl Camera {
         // Construct defaults
         let world_up = Vec3::new(0.0, 1.0, 0.0);
 
-        let eye = Vec3::new(0.0, 5.0, 0.0);
-        let target = Vec3::new(0.0, 5.0, 10.0);
+        let eye = Vec3::new(0.0, 20.0, 0.0);
+        let target = Vec3::new(0.0, 3.0, 10.0);
 
         let front = (target - eye).normalize();
         let right = Vec3::cross(front, world_up).normalize();

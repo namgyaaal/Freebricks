@@ -61,6 +61,18 @@ pub struct QPart {
 
 #[derive(QueryData)]
 #[query_data(derive(Debug))]
+/// Query for spatial data agnostic to what it is.
+pub struct QPartPhysics {
+    pub entity: Entity,
+    pub part: &'static Part,
+    pub position: &'static Position,
+    pub rotation: &'static Rotation,
+    pub size: &'static Size,
+    pub physical: &'static Physical,
+}
+
+#[derive(QueryData)]
+#[query_data(derive(Debug))]
 /// Part Query needed for setup functionality on scene start.
 pub struct QPartWorldInit {
     pub entity: Entity,

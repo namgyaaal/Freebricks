@@ -50,7 +50,7 @@ impl<T> SpatialCell<T> {
 }
 
 #[derive(Debug)]
-pub struct SceneMap {
+pub struct SceneMap<const SIZE: usize> {
     /// Keeps track of entity keys and indices into buffers as a generational arena.
     /// Behavior chained onto this:
     ///     Accessing entities happens through checking this then going into spatial map.
@@ -58,24 +58,20 @@ pub struct SceneMap {
     /// Don't need generations, just indices.
     pub entity_keys: Vec<Option<(SpatialKey, usize)>>,
     pub spatial_map: HashMap<SpatialKey, SpatialCell<PartUniform>>,
-    cell_size: usize,
 }
 
-impl SceneMap {
-    pub fn new(cell_size: usize) -> Result<Self> {
-        if !cell_size.is_power_of_two() {
-            return Err(anyhow!("SceneMap::new(), cell_size must be a power of two"));
-        }
+impl<const SIZE: usize> SceneMap<SIZE> {
+    const INTERNAL_ERR: &'static str = "SceneMap internal error";
 
-        Ok(SceneMap {
+    pub fn new() -> Self {
+        SceneMap {
             entity_keys: vec![None; 1024], // Start off generational arena with 1024
             spatial_map: HashMap::new(),
-            cell_size: cell_size,
-        })
+        }
     }
 
     pub fn get_size(&self) -> usize {
-        self.cell_size
+        SIZE
     }
 
     pub fn set(
@@ -86,7 +82,7 @@ impl SceneMap {
         uniform: PartUniform,
     ) -> Result<()> {
         let e_index = entity.index() as usize;
-        let key = SpatialKey::new(part, position, self.cell_size);
+        let key = SpatialKey::new(part, position, SIZE);
 
         // Size-doubling if entity index is past arena
         if self.entity_keys.len() <= e_index {
@@ -117,7 +113,7 @@ impl SceneMap {
 
                 for other in &other_cell.entities {
                     let Some((_, other)) = &mut self.entity_keys[other.index() as usize] else {
-                        panic!("SceneMap::set(), internal error");
+                        panic!("{}", Self::INTERNAL_ERR);
                     };
 
                     if *other > old_index {
@@ -160,10 +156,7 @@ impl SceneMap {
             ));
         };
 
-        let cell = self
-            .spatial_map
-            .get_mut(&key)
-            .expect("SceneMap::remove(), internal error");
+        let cell = self.spatial_map.get_mut(&key).expect(Self::INTERNAL_ERR);
 
         self.entity_keys[e_index] = None;
         cell.entities.remove(&entity);
@@ -173,7 +166,7 @@ impl SceneMap {
             let o_index = other.index() as usize;
 
             let Some((_, other)) = &mut self.entity_keys[o_index] else {
-                panic!("SceneMap::remove(), internal error");
+                panic!("{}", Self::INTERNAL_ERR);
             };
 
             if *other > index {

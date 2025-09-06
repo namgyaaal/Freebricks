@@ -87,10 +87,7 @@ var<uniform> light: Light;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = vec2<f32>(
-        modf(in.tex_coords.x).fract,
-        modf(in.tex_coords.y).fract,
-    );
+    let uv = in.tex_coords; 
     // Specular lighting
     let norm = normalize(in.world_normal);
 

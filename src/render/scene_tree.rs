@@ -35,6 +35,9 @@ pub struct SceneTree {
     pub brick_vb: wgpu::Buffer,
     pub brick_ib: wgpu::Buffer,
 
+    pub wedge_vb: wgpu::Buffer,
+    pub wedge_ib: wgpu::Buffer,
+
     pub instance_buffer: wgpu::Buffer,
     pub brick_buffers: StagingBelt,
     pub scene_bg: wgpu::BindGroup,
@@ -42,7 +45,7 @@ pub struct SceneTree {
     pub bricks: Vec<PartUniform>,
     drawn_bricks: usize,
     pub clean_queue: VecDeque<u32>,
-    pub map: SceneMap,
+    pub map: SceneMap<32>,
 }
 
 impl SceneTree {
@@ -76,8 +79,20 @@ impl SceneTree {
         });
 
         let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Brick Index BUffer"),
+            label: Some("Brick Index Bufffer"),
             contents: bytemuck::cast_slice(BRICK_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let wvb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Wedge Vertex Buffer"),
+            contents: bytemuck::cast_slice(WEDGE_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let wib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Wedge Index Buffer"),
+            contents: bytemuck::cast_slice(WEDGE_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -260,6 +275,8 @@ impl SceneTree {
             pipeline: render_pipeline,
             brick_vb: vb,
             brick_ib: ib,
+            wedge_vb: wvb,
+            wedge_ib: wib,
             instance_buffer: instance_buffer,
             brick_buffers: StagingBelt::new(MAX_CHUNK_SIZE as u64),
             scene_bg: scene_kit_group,
@@ -267,7 +284,7 @@ impl SceneTree {
             bricks: bricks,
             drawn_bricks: 0,
             clean_queue: VecDeque::new(),
-            map: SceneMap::new(32)?,
+            map: SceneMap::new(),
         });
 
         Ok(())
@@ -328,7 +345,14 @@ impl SceneTree {
             // Give buffer index the size of the vector for now until we need multiple buffers
             brick.buffer_index.0 = Some(st.bricks.len() as u32);
 
-            let uniform = Part::to_uniform(brick.position, brick.rotation, brick.size, brick.color);
+            let uniform = Part::to_uniform(
+                brick.part,
+                brick.studs,
+                brick.position,
+                brick.rotation,
+                brick.size,
+                brick.color,
+            );
             if let Err(e) = st
                 .map
                 .set(brick.entity, *brick.part, brick.position.0, uniform)
@@ -358,7 +382,14 @@ impl SceneTree {
         let queue = &scene.queue;
 
         for brick in query.iter() {
-            let uniform = Part::to_uniform(brick.position, brick.rotation, brick.size, brick.color);
+            let uniform = Part::to_uniform(
+                brick.part,
+                brick.studs,
+                brick.position,
+                brick.rotation,
+                brick.size,
+                brick.color,
+            );
 
             st.map
                 .set(brick.entity, *brick.part, brick.position.0, uniform)?;
@@ -492,7 +523,18 @@ impl SceneTree {
         //    pass.set_vertex_buffer(1, buf.slice(..));
         //}
         // Coupled with assert, this needs to be refactored once we "split up" scenes.
-        pass.draw_indexed(0..36, 0, 0..(scene_tree.drawn_bricks) as _);
+
+        pass.draw_indexed(0..36, 0, 0..1 as _);
+
+        pass.set_vertex_buffer(0, scene_tree.brick_vb.slice(..));
+        pass.set_index_buffer(scene_tree.brick_ib.slice(..), wgpu::IndexFormat::Uint16);
+        pass.draw_indexed(
+            0..BRICK_INDICES.len() as u32,
+            0,
+            1..(scene_tree.drawn_bricks) as _,
+        );
+
+        // (scene_tree.drawn_bricks) as _);
     }
 
     pub fn cleanup(mut scene_tree: ResMut<SceneTree>) {

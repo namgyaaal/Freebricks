@@ -100,7 +100,7 @@ impl Game {
         post_update_schedule.add_systems(
             (
                 handle_model_transform,
-                PhysicsState::update_system(true),
+                PhysicsState::update_system(false),
                 SceneTree::remove_bricks,
                 SceneTree::add_bricks,
                 SceneTree::update_bricks,
@@ -124,28 +124,30 @@ impl Game {
 
         let mut rng = SmallRng::seed_from_u64(42);
 
-        parts.push((
+        world.spawn((
             Part::default(),
             Position(Vec3::new(0.0, 0.0, 0.0)),
             Size(Vec3::new(100.0, 1.0, 100.0)),
             Color([rng.random(), rng.random(), rng.random(), 255]),
+            Anchor,
         ));
 
-        for i in -20..20 {
-            for j in -20..20 {
+        for i in -4..4 {
+            for j in -4..4 {
                 let x: f32 = (rand::random::<u8>() % 4) as f32;
                 let y: f32 = (rand::random::<u8>() % 4) as f32;
                 let z: f32 = (rand::random::<u8>() % 4) as f32;
 
                 parts.push((
-                    Part::default(),
+                    Part::Brick,
                     Position(Vec3::new(
                         (i * 6) as f32,
                         y + 3.0 + (rng.random_range(0..20) as f32),
                         (j * 6) as f32,
                     )),
-                    Size(Vec3::new(1.0 + x, 1.0 + y, 1.0 + z)),
+                    Size(Vec3::new(1.0 + x, 1.0 + x, 1.0 + x)),
                     Color([rand::random(), rand::random(), rand::random(), 255]),
+                    Physical,
                 ));
             }
         }
