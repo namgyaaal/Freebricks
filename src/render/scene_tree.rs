@@ -14,6 +14,8 @@ use crate::{
     },
     render::{
         camera::*,
+        details::part_details::{part_details_get, part_details_init},
+        part_queue::PartQueue,
         parts::*,
         render_state::{FrameInfo, RenderState},
         scene_map::{SceneMap, SpatialKey},
@@ -22,9 +24,7 @@ use crate::{
 };
 use bevy_ecs::prelude::*;
 use glam::Vec3;
-use rand::{Rng, SeedableRng, rngs::SmallRng, seq::IndexedRandom};
-use tracing::info;
-use wgpu::util::{DeviceExt, StagingBelt};
+use wgpu::util::DeviceExt;
 
 const MAX_INSTANCE_BUFFER_COUNT: usize = u16::MAX as usize * 2;
 const MAX_CHUNK_SIZE: usize = MAX_INSTANCE_BUFFER_COUNT / 4;
@@ -32,20 +32,10 @@ const MAX_CHUNK_SIZE: usize = MAX_INSTANCE_BUFFER_COUNT / 4;
 #[derive(Resource)]
 pub struct SceneTree {
     pub pipeline: wgpu::RenderPipeline,
-    pub brick_vb: wgpu::Buffer,
-    pub brick_ib: wgpu::Buffer,
-
-    pub wedge_vb: wgpu::Buffer,
-    pub wedge_ib: wgpu::Buffer,
-
-    pub instance_buffer: wgpu::Buffer,
-    pub brick_buffers: StagingBelt,
-    pub scene_bg: wgpu::BindGroup,
-    pub texture_bg: wgpu::BindGroup,
-    pub bricks: Vec<PartUniform>,
-    drawn_bricks: usize,
-    pub clean_queue: VecDeque<u32>,
+    pub part_bind_group: wgpu::BindGroup,
+    pub removal_buffer: Vec<Entity>,
     pub map: SceneMap<32>,
+    pub part_queue: PartQueue,
 }
 
 impl SceneTree {
@@ -71,82 +61,13 @@ impl SceneTree {
         let device = &render_state.device;
         let queue = &render_state.queue;
         let config = &render_state.config;
-
-        let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Brick Vertex Buffer"),
-            contents: bytemuck::cast_slice(BRICK_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Brick Index Bufffer"),
-            contents: bytemuck::cast_slice(BRICK_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let wvb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wedge Vertex Buffer"),
-            contents: bytemuck::cast_slice(WEDGE_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let wib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Wedge Index Buffer"),
-            contents: bytemuck::cast_slice(WEDGE_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
+        part_buffer_init(device);
+        part_details_init(device);
         /*
            Brick Texture Layout
         */
-
+        let part_layout = &part_details_get().bind_layout;
         let brick_texture = Texture::create_brick_texture(&brick_diffuse, device, queue);
-        let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Brick Texture Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2Array,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let texture_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Brick Texture Group"),
-            layout: &texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&brick_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&brick_texture.sampler),
-                },
-            ],
-        });
-
-        /*
-           Scene Kit Layout
-               [Lights, Camera]--Layout and Bind Group
-
-        */
-
-        /*
-           Quick mock-up of a light until we need one.
-        */
 
         let dir = glam::Vec3::new(-0.5, -0.7, -1.0).normalize();
         let light_direction = [dir.x, dir.y, dir.z, 0.0];
@@ -158,44 +79,24 @@ impl SceneTree {
 
         let camera_buffer = &world.get_resource::<Camera>().unwrap().buffer;
 
-        let scene_kit_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Scene Kit Layout"),
-            entries: &[
-                // Camera Entry
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // Light Entry
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let scene_kit_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Scene Kit Group"),
-            layout: &scene_kit_layout,
+        let part_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Brick Texture Group"),
+            layout: &part_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&brick_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&brick_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
                     resource: camera_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 1,
+                    binding: 3,
                     resource: light_buffer.as_entire_binding(),
                 },
             ],
@@ -205,13 +106,6 @@ impl SceneTree {
            Render Pipeline definition
         */
 
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("SceneTree Pipeline Layout"),
-                bind_group_layouts: &[&texture_layout, &scene_kit_layout],
-                push_constant_ranges: &[],
-            });
-
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Some Shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::from(shader_source)),
@@ -219,16 +113,16 @@ impl SceneTree {
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("SceneTree Pipeline"),
-            layout: Some(&render_pipeline_layout),
+            layout: Some(&part_details_get().pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: Some("vs_main"),
+                entry_point: Some("vs_main_instanced"),
                 buffers: &[PartVertex::desc(), PartUniform::desc_instancing()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_main_instanced"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
@@ -261,81 +155,43 @@ impl SceneTree {
             cache: None,
         });
 
-        let bricks: Vec<PartUniform> = Vec::with_capacity(MAX_INSTANCE_BUFFER_COUNT);
+        let pq = PartQueue::new(device);
 
-        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Brick Instance Buffer"),
-            size: (std::mem::size_of::<PartUniform>() * MAX_INSTANCE_BUFFER_COUNT) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        world.add_observer(Self::handle_index_removal);
+        world.add_observer(Self::handle_part_removal);
         world.insert_resource(Self {
             pipeline: render_pipeline,
-            brick_vb: vb,
-            brick_ib: ib,
-            wedge_vb: wvb,
-            wedge_ib: wib,
-            instance_buffer: instance_buffer,
-            brick_buffers: StagingBelt::new(MAX_CHUNK_SIZE as u64),
-            scene_bg: scene_kit_group,
-            texture_bg: texture_group,
-            bricks: bricks,
-            drawn_bricks: 0,
-            clean_queue: VecDeque::new(),
+            part_bind_group: part_group,
+            removal_buffer: Vec::new(),
             map: SceneMap::new(),
+            part_queue: pq,
         });
 
         Ok(())
     }
 
-    pub fn handle_index_removal(
-        trigger: Trigger<OnRemove, BufferIndex>,
-        indices: Query<&BufferIndex>,
-        mut st: ResMut<SceneTree>,
-    ) {
-        let Ok(b_index) = indices.get(trigger.target()) else {
-            return;
-        };
-
-        let Some(index) = b_index.0 else {
-            return;
-        };
-        st.clean_queue.push_back(index);
+    pub fn handle_part_removal(trigger: Trigger<OnRemove, Part>, mut st: ResMut<SceneTree>) {
+        let entity = trigger.target();
+        st.removal_buffer.push(entity);
     }
 
     /// Adjust possible instance and uniform buffers on event of objects being deleted
-    pub fn remove_bricks(
-        mut st: ResMut<SceneTree>,
-        mut query: Query<QPartRenderUpdate>,
-        //mut er: EventReader<RenderCleanup>,
-    ) {
-        if st.clean_queue.is_empty() {
-            return;
+    pub fn remove_bricks(mut st: ResMut<SceneTree>) -> Result<()> {
+        let scene_tree = st.deref_mut();
+        if scene_tree.removal_buffer.is_empty() {
+            return Ok(());
         }
 
-        let indices: Vec<u32> = st.clean_queue.drain(..).collect();
-
-        let mut index: u32 = 0;
-        st.bricks.retain_mut(|_| {
-            let remove = !indices.contains(&index);
-            index += 1;
-            remove
-        });
-
-        index = 0;
-
-        for mut bi in query.iter_mut() {
-            bi.buffer_index.0 = Some(index);
-            index += 1;
+        let entities: Vec<Entity> = scene_tree.removal_buffer.drain(..).collect();
+        for entity in entities {
+            scene_tree.map.remove(entity)?;
         }
+        Ok(())
     }
 
     /// Called in update loop if bricks are added to the scene during the game
     /// Reorders the BufferIndex component to its position in the instance buffer
     pub fn add_bricks(
-        state: Res<RenderState>,
+        _state: Res<RenderState>,
         mut st: ResMut<SceneTree>,
         mut query: Query<QPartRenderUpdate, FPartAdd>,
     ) -> Result<()> {
@@ -343,8 +199,6 @@ impl SceneTree {
 
         for mut brick in query.iter_mut() {
             // Give buffer index the size of the vector for now until we need multiple buffers
-            brick.buffer_index.0 = Some(st.bricks.len() as u32);
-
             let uniform = Part::to_uniform(
                 brick.part,
                 brick.studs,
@@ -359,13 +213,8 @@ impl SceneTree {
             {
                 println!("{:?}", e);
             };
-
-            st.bricks.push(uniform);
         }
-        // Again, using this until we have multiple buffers.
-        //if let Some(buffer) = st.brick_ibos.first() {
-        //    queue.write_buffer(buffer, 0, bytemuck::cast_slice(&st.bricks));
-        //}
+
         Ok(())
     }
 
@@ -407,33 +256,16 @@ impl SceneTree {
         state: Res<RenderState>,
         mut scene_tree: ResMut<SceneTree>,
         mut info: ResMut<FrameInfo>,
-        mut i: Local<u64>,
         camera: Res<Camera>,
     ) {
         let scene_tree = scene_tree.deref_mut();
+        let device = &state.device;
         let encoder = info
             .command
             .as_mut()
             .expect("write_buffers() expects command encoder");
 
-        let struct_size = std::mem::size_of::<PartUniform>();
-        // BufferViewMut with a small size crashes.
-        let max = usize::max(scene_tree.bricks.len(), 1024);
-
-        let belt = &mut scene_tree.brick_buffers;
-        let mut view = belt.write_buffer(
-            encoder,
-            &scene_tree.instance_buffer,
-            0,
-            NonZero::new((max * struct_size) as u64).unwrap(),
-            &state.device,
-        );
-
-        *i += 1;
-        let mut count = 0;
-        let mut batches = 0;
         let cell_size = scene_tree.map.get_size() as f32;
-
         let mut keys: Vec<&SpatialKey> = scene_tree
             .map
             .spatial_map
@@ -450,43 +282,22 @@ impl SceneTree {
                 .as_vec3()
                 .distance(camera.position)
                 .partial_cmp(&b.position.as_vec3().distance(camera.position))
-                .expect("wut")
+                .expect("No idea how cmp can fail but it did")
         });
 
+        // TODO: Find out better way to handle this
+        let mut uniforms: Vec<PartUniform> = Vec::new();
         for key in keys {
-            let cell = scene_tree.map.spatial_map.get(key).expect("wut");
-
-            let center = key.position.as_vec3() + (cell_size / 2.0);
-            let extent = Vec3::new(cell_size, cell_size, cell_size) / 0.60;
-
-            if !camera.check_bounds(center, extent) {
+            let Some(cell) = scene_tree.map.spatial_map.get(key) else {
                 continue;
-            }
-
-            if count + cell.buffers.len() > max {
-                break;
-            }
-            let len = cell.buffers.len();
-
-            let start = count * struct_size;
-            let end = (count + len) * struct_size;
-
-            view[start..end].copy_from_slice(bytemuck::cast_slice(&cell.buffers));
-
-            count += cell.buffers.len();
-            batches += 1;
+            };
+            uniforms.extend_from_slice(&cell.buffers);
         }
-        drop(view);
 
-        scene_tree.drawn_bricks = count;
-
-        if *i % 40 == 0 {
-            println!(
-                "Drawing: {} bricks from {} batches",
-                scene_tree.drawn_bricks, batches
-            );
-        }
-        belt.finish();
+        scene_tree
+            .part_queue
+            .map_slice(device, encoder, Part::Brick, &uniforms);
+        scene_tree.part_queue.submit();
     }
 
     pub fn render(
@@ -494,50 +305,27 @@ impl SceneTree {
         scene: Res<RenderState>,
         mut info: ResMut<FrameInfo>,
     ) {
-        let st = scene_tree.deref_mut();
-        let device = &scene.device;
-
-        let encoder = info
-            .command
-            .as_mut()
-            .expect("SceneTree::render(), expected Command Encoder");
-
         let pass = info
             .pass
             .as_mut()
             .expect("SceneTree::render(), expected RenderPass");
         pass.set_pipeline(&scene_tree.pipeline);
-        pass.set_bind_group(0, &scene_tree.texture_bg, &[]);
-        pass.set_bind_group(1, &scene_tree.scene_bg, &[]);
+        pass.set_bind_group(0, &scene_tree.part_bind_group, &[]);
+        //pass.set_bind_group(1, &scene_tree.scene_bg, &[]);
 
-        pass.set_vertex_buffer(0, scene_tree.brick_vb.slice(..));
+        scene_tree.part_queue.drain_instances(|tuple| {
+            let (part, len, buffer) = tuple;
 
-        pass.set_index_buffer(scene_tree.brick_ib.slice(..), wgpu::IndexFormat::Uint16);
+            let (vb, ib) = part_buffer_fetch(*part);
+            pass.set_vertex_buffer(0, vb.slice(..));
+            pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
 
-        //ueue.write_buffer(buffer, 0, bytemuck::cast_slice(&st.bricks));
-
-        // Remove in future, just having one instance buffer for now
-        //assert!(scene_tree.brick_ibos.len() == 1);
-        pass.set_vertex_buffer(1, scene_tree.instance_buffer.slice(..));
-        //for buf in &scene_tree.brick_ibos {
-        //    pass.set_vertex_buffer(1, buf.slice(..));
-        //}
-        // Coupled with assert, this needs to be refactored once we "split up" scenes.
-
-        pass.draw_indexed(0..36, 0, 0..1 as _);
-
-        pass.set_vertex_buffer(0, scene_tree.brick_vb.slice(..));
-        pass.set_index_buffer(scene_tree.brick_ib.slice(..), wgpu::IndexFormat::Uint16);
-        pass.draw_indexed(
-            0..BRICK_INDICES.len() as u32,
-            0,
-            1..(scene_tree.drawn_bricks) as _,
-        );
-
-        // (scene_tree.drawn_bricks) as _);
+            pass.set_vertex_buffer(1, buffer.slice(..));
+            pass.draw_indexed(0..BRICK_INDICES.len() as _, 0, 0..*len as _);
+        });
     }
 
-    pub fn cleanup(mut scene_tree: ResMut<SceneTree>) {
-        scene_tree.brick_buffers.recall();
+    pub fn recall(mut scene_tree: ResMut<SceneTree>) {
+        scene_tree.part_queue.recall();
     }
 }

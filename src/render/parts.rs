@@ -5,15 +5,74 @@ use crate::{
     common::types::HasPosition,
     ecs::{common::*, parts::*},
 };
+use bevy_platform::collections::HashMap;
 use bytemuck::{Pod, Zeroable};
 use glam::{Affine3A, Vec3};
 use std::{
     f32::{self, consts::PI},
-    sync::LazyLock,
+    sync::{LazyLock, OnceLock},
 };
-/*
-    Implementing render-related stuff here.
-*/
+use wgpu::util::DeviceExt;
+
+static PART_BUFFERS: OnceLock<HashMap<Part, (wgpu::Buffer, wgpu::Buffer)>> = OnceLock::new();
+pub fn part_buffer_init(device: &wgpu::Device) {
+    let mut map: HashMap<Part, (wgpu::Buffer, wgpu::Buffer)> = HashMap::new();
+    // Brick
+    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Brick Vertex Buffer"),
+        contents: bytemuck::cast_slice(BRICK_VERTICES),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Brick Index Buffer"),
+        contents: bytemuck::cast_slice(BRICK_INDICES),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    map.insert(Part::Brick, (vb, ib));
+
+    // Wedge
+    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Brick Vertex Buffer"),
+        contents: bytemuck::cast_slice(WEDGE_VERTICES),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Brick Index Buffer"),
+        contents: bytemuck::cast_slice(WEDGE_INDICES),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    map.insert(Part::Wedge, (vb, ib));
+
+    // Ball
+    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Brick Vertex Buffer"),
+        contents: bytemuck::cast_slice(&*BALL_VERTICES),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Brick Index Buffer"),
+        contents: bytemuck::cast_slice(&*BALL_INDICES),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+    map.insert(Part::Wedge, (vb, ib));
+
+    PART_BUFFERS
+        .set(map)
+        .expect("Can't call part_buffer_init() twice");
+}
+
+pub fn part_buffer_fetch(part_type: Part) -> (&'static wgpu::Buffer, &'static wgpu::Buffer) {
+    let map = PART_BUFFERS
+        .get()
+        .expect("Called part_buffer_fetch() before part_buffer_init()");
+
+    let pair = map.get(&part_type).expect("Part not included");
+
+    (&pair.0, &pair.1)
+}
 
 impl Part {
     pub fn to_uniform(

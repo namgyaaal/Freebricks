@@ -23,14 +23,22 @@ pub struct Tag1;
 pub fn foobar(
     mut commands: Commands,
     mut count: Local<u64>,
-    mut test: Query<(Entity, &mut Position)>,
+    mut test: Query<(Entity, &Part)>,
     mut storage: Local<Vec<Vec3>>,
 ) {
     //let mut rng = SmallRng::seed_from_u64(*count);
     return;
-    let storage: &mut Vec<Vec3> = storage.as_mut();
+    if *count < 60 {
+        *count += 1;
+        return;
+    }
 
     for (e, mut c) in test.iter_mut() {
+        commands.entity(e).despawn();
+        *count = 0;
+        return;
+        /*
+
         let e_index = e.index() as usize;
 
         if *count == 0 {
@@ -44,7 +52,7 @@ pub fn foobar(
         c.z = storage[e_index].z + (*count as f32 / 120.0).sin() * 100.0;
         //if rng.random_bool(0.01) {
         //    *c = Color([rng.random(), rng.random(), rng.random(), 255]);
-        //}
+        //}*/
     }
     *count += 1;
 }
@@ -115,7 +123,7 @@ impl Game {
                 SceneTree::render,
                 DebugDraw::render,
                 RenderState::flush,
-                SceneTree::cleanup,
+                SceneTree::recall,
             )
                 .chain(),
         );

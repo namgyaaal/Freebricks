@@ -2,7 +2,7 @@ use crate::ecs::{common::*, physics::*, render::*};
 use bevy_ecs::query::QueryData;
 use bevy_ecs::{prelude::*, query::QueryFilter};
 
-#[derive(Component, Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Component, Debug, Default, PartialEq, Eq, Hash, Clone, Copy)]
 #[require(StudInfo, Position, Rotation, Color, Size, BufferIndex)]
 // Encompasses Brick, Wedge, Ball and Mesh
 pub enum Part {
@@ -12,6 +12,14 @@ pub enum Part {
     Wedge = 1,
     Ball = 2,
     Mesh = 3,
+}
+
+impl Part {
+    /// Get number of variants
+    /// Note: replace with variant_count once that transistions out of nightly.
+    pub fn count() -> usize {
+        4
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

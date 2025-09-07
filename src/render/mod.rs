@@ -8,3 +8,5 @@ pub mod parts;
 pub mod scene_map;
 pub mod scene_tree;
 pub mod texture;
+
+pub mod details;

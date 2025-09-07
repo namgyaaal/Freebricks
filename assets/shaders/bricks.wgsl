@@ -7,7 +7,7 @@ struct Light {
     direction: vec3<f32>,
 }
 
-@group(1) @binding(0)
+@group(0) @binding(2)
 var<uniform> camera: Camera;
 
 struct VertexInput {
@@ -16,7 +16,7 @@ struct VertexInput {
     @location(2) tex_coords: vec2<f32>,
     @location(3) tex_scale: vec2<u32>
 }
-struct InstanceInput {
+struct PerPartInfo {
     @location(5) model_matrix_0: vec3<f32>,
     @location(6) model_matrix_1: vec3<f32>,
     @location(7) model_matrix_2: vec3<f32>,
@@ -41,9 +41,16 @@ struct VertexOutput {
 }
 
 @vertex
-fn vs_main(
+fn vs_main_uniform() -> VertexOutput{
+    var out: VertexOutput; 
+
+    return out;
+} 
+
+@vertex
+fn vs_main_instanced(
     model: VertexInput,
-    instance: InstanceInput,
+    instance: PerPartInfo,
     @builtin(vertex_index) vertex_index: u32
 ) -> VertexOutput {
     let model_matrix: mat4x4<f32> = mat4x4<f32>(
@@ -81,12 +88,16 @@ fn vs_main(
 var t_diffuse: texture_2d_array<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
-
-@group(1) @binding(1)
+@group(0) @binding(3)
 var<uniform> light: Light;
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main_uniform(in: VertexOutput) -> @location(0) vec4<f32> {
+    return vec4(0.0, 0.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main_instanced(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords; 
     // Specular lighting
     let norm = normalize(in.world_normal);
