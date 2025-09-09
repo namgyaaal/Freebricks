@@ -7,7 +7,7 @@ use crate::{
 };
 use bevy_platform::collections::HashMap;
 use bytemuck::{Pod, Zeroable};
-use glam::{Affine3A, Vec3};
+use glam::{Affine3A, Mat4};
 use std::{
     f32::{self, consts::PI},
     sync::{LazyLock, OnceLock},
@@ -75,14 +75,14 @@ pub fn part_buffer_fetch(part_type: Part) -> (&'static wgpu::Buffer, &'static wg
 }
 
 impl Part {
-    pub fn to_uniform(
+    pub fn to_instance(
         part: &Part,
-        studs: &StudInfo,
+        _studs: &StudInfo,
         position: &Position,
         rotation: &Rotation,
         size: &Size,
         color: &Color,
-    ) -> PartUniform {
+    ) -> PartInstance {
         let transform = Affine3A::from_scale_rotation_translation(size.0, rotation.0, position.0);
 
         let normals = transform.matrix3.inverse().transpose().to_cols_array_2d();
@@ -93,7 +93,7 @@ impl Part {
             _ => 0,
         };
 
-        PartUniform {
+        PartInstance {
             model: transform.to_cols_array_2d(),
             normal: normals,
             color: color.0,
@@ -114,12 +114,46 @@ pub struct PartVertex {
 
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable, Debug)]
-pub struct PartUniform {
+pub struct PartInstance {
     pub model: [[f32; 3]; 4],
     pub normal: [[f32; 3]; 3],
     pub color: [u8; 4],
     pub size: [f32; 3],
     pub stud_layout: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
+pub struct PartUniform {
+    pub model: [[f32; 4]; 4],
+    pub normal: [[f32; 4]; 4],
+    pub color: [f32; 3],
+    _padding1: i32,
+    pub size: [f32; 3],
+    pub stud_layout: u32,
+}
+
+impl From<PartInstance> for PartUniform {
+    fn from(value: PartInstance) -> Self {
+        let model = Affine3A::from_cols_array_2d(&value.model);
+        let model: Mat4 = model.into();
+        let normal = model.inverse().transpose().to_cols_array_2d();
+
+        let color = [
+            value.color[0] as f32 / 255 as f32,
+            value.color[1] as f32 / 255 as f32,
+            value.color[2] as f32 / 255 as f32,
+        ];
+
+        Self {
+            model: model.to_cols_array_2d(),
+            normal: normal,
+            color: color,
+            _padding1: 0,
+            size: value.size,
+            stud_layout: value.stud_layout,
+        }
+    }
 }
 
 impl HasPosition for PartVertex {
@@ -165,12 +199,12 @@ impl PartVertex {
     }
 }
 
-impl PartUniform {
+impl PartInstance {
     pub fn desc_instancing() -> wgpu::VertexBufferLayout<'static> {
         use std::mem::size_of;
 
         wgpu::VertexBufferLayout {
-            array_stride: size_of::<PartUniform>() as wgpu::BufferAddress,
+            array_stride: size_of::<PartInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
                 // Affine transform

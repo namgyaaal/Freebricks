@@ -4,13 +4,13 @@ use crate::{
     ecs::{
         model::{FModelAdd, QModel},
         parts::{FPartAdd, Part, QPartPhysics, QPartPhysicsItem},
-        physics::{Anchor, BodyHandle, FAnchored, FUnanchored, QPhysics, ShapeHandle},
+        physics::{Anchor, BodyHandle, FAnchored, FUnanchored, ShapeHandle},
     },
     physics::{physics_state::PhysicsState, utils::reduce_to_scaled_hull},
     render::parts::WEDGE_VERTICES,
 };
 use bevy_ecs::prelude::*;
-use rapier3d::{na::OPoint, prelude::*};
+use rapier3d::prelude::*;
 
 /// Build physics information for parts not under a model.
 /// There are three types of parts we need to worry about.
@@ -107,8 +107,6 @@ fn get_builder(part: &QPartPhysicsItem) -> ColliderBuilder {
 
 /// Shorthand util to get collider with relevant data in it
 fn get_shape(part: &QPartPhysicsItem, full: bool) -> Collider {
-    let size = part.size.0 / 2.0;
-
     let mut builder = get_builder(part);
     if full {
         let pos = part.position;

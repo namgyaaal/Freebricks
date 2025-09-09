@@ -16,12 +16,12 @@ struct VertexInput {
     @location(2) tex_coords: vec2<f32>,
     @location(3) tex_scale: vec2<u32>
 }
-struct PerPartInfo {
+
+struct InstancingPartData {
     @location(5) model_matrix_0: vec3<f32>,
     @location(6) model_matrix_1: vec3<f32>,
     @location(7) model_matrix_2: vec3<f32>,
     @location(8) model_matrix_3: vec3<f32>,
-
 
     @location(9) normal_matrix_0: vec3<f32>,
     @location(10) normal_matrix_1: vec3<f32>,
@@ -29,6 +29,15 @@ struct PerPartInfo {
     @location(12) color:          vec4<f32>, 
     @location(13) size:          vec3<f32>,
     @location(14) stud_layout:         u32,
+}
+
+struct UniformPartData {
+    model: mat4x4<f32>, 
+    normal: mat4x4<f32>, 
+    color: vec4<f32>,
+    size: vec3<f32>,
+
+    stud_layout: u32
 }
 
 struct VertexOutput {
@@ -40,9 +49,33 @@ struct VertexOutput {
     @location(4) world_position: vec3<f32>,
 }
 
+// Used only by uniform 
+@group(1) @binding(0)
+var<uniform> part_uniform: UniformPartData;
+
+
 @vertex
-fn vs_main_uniform() -> VertexOutput{
-    var out: VertexOutput; 
+fn vs_main_uniform(
+    model: VertexInput,
+    @builtin(vertex_index) vertex_index: u32
+) -> VertexOutput{
+    let model_matrix = part_uniform.model;
+    let normal_matrix = part_uniform.normal; 
+
+    var out: VertexOutput;
+    
+    var world_position = model_matrix * vec4<f32>(model.position, 1.0);
+
+    out.world_position = world_position.xyz; 
+    out.world_normal = (normal_matrix * vec4<f32>(model.normal, 1.0)).xyz;
+    out.clip_position = camera.view_proj * world_position; 
+    out.color = part_uniform.color.xyz;
+
+    out.tex_coords = model.tex_coords * vec2<f32>(
+        part_uniform.size[model.tex_scale.x],
+        part_uniform.size[model.tex_scale.y]
+    );
+    out.stud_index = ((part_uniform.stud_layout) >> ((vertex_index / 4) * 4)) & 0xF;
 
     return out;
 } 
@@ -50,7 +83,7 @@ fn vs_main_uniform() -> VertexOutput{
 @vertex
 fn vs_main_instanced(
     model: VertexInput,
-    instance: PerPartInfo,
+    instance: InstancingPartData,
     @builtin(vertex_index) vertex_index: u32
 ) -> VertexOutput {
     let model_matrix: mat4x4<f32> = mat4x4<f32>(

@@ -1,13 +1,10 @@
-use std::{
-    cell,
-    hash::{Hash, Hasher},
-};
+use std::hash::{Hash, Hasher};
 
 use bevy_ecs::entity::Entity;
 use bevy_platform::collections::{HashMap, HashSet};
 use glam::{IVec3, Vec3};
 
-use crate::{ecs::parts::Part, render::parts::PartUniform};
+use crate::{ecs::parts::Part, render::parts::PartInstance};
 use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -57,7 +54,7 @@ pub struct SceneMap<const SIZE: usize> {
     ///     If the new position on an update falls in a different location, have to update spatial_map.
     /// Don't need generations, just indices.
     pub entity_keys: Vec<Option<(SpatialKey, usize)>>,
-    pub spatial_map: HashMap<SpatialKey, SpatialCell<PartUniform>>,
+    pub spatial_map: HashMap<SpatialKey, SpatialCell<PartInstance>>,
 }
 
 impl<const SIZE: usize> SceneMap<SIZE> {
@@ -79,7 +76,7 @@ impl<const SIZE: usize> SceneMap<SIZE> {
         entity: Entity,
         part: Part,
         position: Vec3,
-        uniform: PartUniform,
+        uniform: PartInstance,
     ) -> Result<()> {
         let e_index = entity.index() as usize;
         let key = SpatialKey::new(part, position, SIZE);
@@ -141,7 +138,7 @@ impl<const SIZE: usize> SceneMap<SIZE> {
         Ok(())
     }
 
-    pub fn remove(&mut self, entity: Entity) -> Result<PartUniform> {
+    pub fn remove(&mut self, entity: Entity) -> Result<PartInstance> {
         let e_index = entity.index() as usize;
 
         if self.entity_keys.len() < e_index {

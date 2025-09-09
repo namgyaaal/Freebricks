@@ -1,10 +1,7 @@
 use crate::{common::state::*, render::texture::*};
 use anyhow::Result;
 use bevy_ecs::prelude::*;
-use std::{
-    ops::{Deref, DerefMut},
-    sync::Arc,
-};
+use std::{ops::DerefMut, sync::Arc};
 use wgpu::{RenderPass, SurfaceTexture};
 use winit::window::Window;
 

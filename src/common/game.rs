@@ -20,6 +20,7 @@ use winit::{dpi::PhysicalSize, window::Window};
 #[derive(Component)]
 pub struct Tag1;
 
+#[allow(unused)]
 pub fn foobar(
     mut commands: Commands,
     mut count: Local<u64>,
@@ -140,11 +141,10 @@ impl Game {
             Anchor,
         ));
 
-        for i in -4..4 {
+        for i in -32..32 {
             for j in -4..4 {
                 let x: f32 = (rand::random::<u8>() % 4) as f32;
                 let y: f32 = (rand::random::<u8>() % 4) as f32;
-                let z: f32 = (rand::random::<u8>() % 4) as f32;
 
                 parts.push((
                     Part::Brick,

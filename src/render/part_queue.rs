@@ -1,21 +1,28 @@
-use std::{
-    cell::OnceCell,
-    collections::VecDeque,
-    num::NonZero,
-    sync::{LazyLock, OnceLock},
-};
+use std::{collections::VecDeque, num::NonZero, sync::OnceLock};
 
 use wgpu::{CommandEncoder, util::StagingBelt};
 
-use crate::{ecs::parts::Part, render::parts::PartUniform};
+use crate::{
+    ecs::parts::Part,
+    render::{
+        details::part_details::part_details_get,
+        parts::{PartInstance, PartUniform},
+    },
+};
 
-const MAX_INSTANCE_COUNT: usize = (u16::MAX / 4) as usize;
-static UNIFORM_LAYOUT_SIZE: OnceLock<usize> = OnceLock::new();
-static MAX_UNIFORM_COUNT: OnceLock<usize> = OnceLock::new();
+pub const MAX_INSTANCE_COUNT: usize = (u16::MAX / 4) as usize;
+pub static UNIFORM_LAYOUT_SIZE: OnceLock<usize> = OnceLock::new();
+pub static MAX_UNIFORM_COUNT: OnceLock<usize> = OnceLock::new();
 
-pub type ReadyBuffer = (Part, usize, wgpu::Buffer);
+pub struct ReadyBuffer {
+    pub part_type: Part,
+    pub len: usize,
+    pub buffer: wgpu::Buffer,
+    pub bind_and_offsets: Option<(wgpu::BindGroup, Vec<wgpu::DynamicOffset>)>,
+}
+
 pub struct PartQueue {
-    unused_uniform_buffers: VecDeque<wgpu::Buffer>,
+    unused_uniform_buffers: VecDeque<(wgpu::Buffer, wgpu::BindGroup)>,
     unused_instance_buffers: VecDeque<wgpu::Buffer>,
 
     uniform_belt: StagingBelt,
@@ -28,14 +35,15 @@ pub struct PartQueue {
 }
 
 impl PartQueue {
-    const STRUCT_SIZE: u64 = std::mem::size_of::<PartUniform>() as u64;
+    const INSTANCE_SIZE: u64 = std::mem::size_of::<PartInstance>() as u64;
+    const UNIFORM_SIZE: u64 = std::mem::size_of::<PartUniform>() as u64;
 
     pub fn new(device: &wgpu::Device) -> Self {
         // Uniform count and uniform layout size should be filled here.
         let uniform_count = *MAX_UNIFORM_COUNT.get_or_init(|| {
             let per_size = *UNIFORM_LAYOUT_SIZE.get_or_init(|| {
                 let min_layout_size = device.limits().min_uniform_buffer_offset_alignment as usize;
-                usize::max(min_layout_size, Self::STRUCT_SIZE as usize)
+                usize::max(min_layout_size, Self::UNIFORM_SIZE as usize)
             });
             let max_size = device.limits().max_uniform_buffer_binding_size as usize;
             max_size / per_size
@@ -49,7 +57,7 @@ impl PartQueue {
             unused_instance_buffers: VecDeque::new(),
             unused_uniform_buffers: VecDeque::new(),
             uniform_belt: StagingBelt::new((layout_size * uniform_count) as u64),
-            instance_belt: StagingBelt::new(Self::STRUCT_SIZE * MAX_INSTANCE_COUNT as u64),
+            instance_belt: StagingBelt::new(Self::INSTANCE_SIZE * MAX_INSTANCE_COUNT as u64),
             uniform_dirty: false,
             instance_dirty: false,
             ready_instance_buffers: VecDeque::new(),
@@ -60,17 +68,19 @@ impl PartQueue {
             .unused_instance_buffers
             .push_back(part_queue.new_instance_buffer(device));
 
-        // Get a handful of uniform buffers
+        // Allocate a handful of uniform buffers
         for _ in 0..5 {
+            let buffer_and_bind_group = part_queue.new_uniform_buffer(device);
+
             part_queue
                 .unused_uniform_buffers
-                .push_back(part_queue.new_uniform_buffer(device));
+                .push_back(buffer_and_bind_group);
         }
         part_queue
     }
 
-    fn new_uniform_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
-        let size = *MAX_UNIFORM_COUNT
+    fn new_uniform_buffer(&self, device: &wgpu::Device) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let uniform_count = *MAX_UNIFORM_COUNT
             .get()
             .expect("Uniform count should be filled");
 
@@ -78,16 +88,30 @@ impl PartQueue {
             .get()
             .expect("Uniform layout should be filled in");
 
-        device.create_buffer(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Part Uniform Buffer"),
-            size: (size * layout_size) as u64,
+            size: (uniform_count * layout_size) as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        })
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Part Uniform Bind Group"),
+            layout: &part_details_get().part_uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(Self::UNIFORM_SIZE as u64), // Give it entire layout for now
+                }),
+            }],
+        });
+        (buffer, bind_group)
     }
 
     fn new_instance_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
-        let size = (std::mem::size_of::<PartUniform>() * MAX_INSTANCE_COUNT) as u64;
+        let size = Self::INSTANCE_SIZE * MAX_INSTANCE_COUNT as u64;
 
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Part Instance Buffer"),
@@ -97,7 +121,7 @@ impl PartQueue {
         })
     }
 
-    fn get_uniform_buffer(&mut self, device: &wgpu::Device) -> wgpu::Buffer {
+    fn get_uniform_buffer(&mut self, device: &wgpu::Device) -> (wgpu::Buffer, wgpu::BindGroup) {
         if let Some(buffer) = self.unused_uniform_buffers.pop_front() {
             buffer
         } else {
@@ -118,13 +142,12 @@ impl PartQueue {
         device: &wgpu::Device,
         encoder: &mut CommandEncoder,
         part_type: Part,
-        uniforms: &[PartUniform],
+        uniforms: &[PartInstance],
     ) {
         let max_uniform = *MAX_UNIFORM_COUNT
             .get()
             .expect("Uniform count should be filled");
-        if true == false {
-            //if uniforms.len() <= max_uniform * 4 {
+        if uniforms.len() <= max_uniform * 4 {
             // Uniform
 
             // Uniform Buffer Objects work a bit differently than Instance Buffer Objects, they require a padding of 256 bytes,
@@ -134,7 +157,7 @@ impl PartQueue {
                 .expect("Uniform layout should be filled in");
 
             for chunk in uniforms.rchunks(max_uniform) {
-                let buffer = self.get_uniform_buffer(device);
+                let (buffer, bind_group) = self.get_uniform_buffer(device);
                 let view_size = NonZero::new((layout_size * chunk.len()) as u64)
                     .expect("View size didn't construct");
                 let mut view = self
@@ -143,11 +166,21 @@ impl PartQueue {
 
                 // re-alignment to uniform buffer alignment size
                 for i in 0..chunk.len() {
-                    view[i * layout_size..i * layout_size + Self::STRUCT_SIZE as usize]
-                        .copy_from_slice(&bytemuck::cast_slice(&[chunk[i]]));
+                    let uniform = PartUniform::from(chunk[i]);
+                    view[i * layout_size..i * layout_size + Self::UNIFORM_SIZE as usize]
+                        .copy_from_slice(&bytemuck::cast_slice(&[uniform]));
                 }
-                self.ready_uniform_buffers
-                    .push_back((part_type, chunk.len(), buffer));
+
+                let offsets: Vec<wgpu::DynamicOffset> = (0..chunk.len())
+                    .map(|i| (i * layout_size) as wgpu::DynamicOffset)
+                    .collect();
+
+                self.ready_uniform_buffers.push_back(ReadyBuffer {
+                    part_type: part_type,
+                    len: chunk.len(),
+                    buffer: buffer,
+                    bind_and_offsets: Some((bind_group, offsets)),
+                });
             }
 
             self.uniform_dirty = true;
@@ -156,16 +189,20 @@ impl PartQueue {
             for chunk in uniforms.rchunks(MAX_INSTANCE_COUNT) {
                 let buffer = self.get_instance_buffer(device);
 
-                let max_len: u64 = Self::STRUCT_SIZE * usize::max(chunk.len(), 1024) as u64;
+                let max_len: u64 = Self::INSTANCE_SIZE * usize::max(chunk.len(), 1024) as u64;
                 let view_size = NonZero::new(max_len).expect("Wut");
                 let mut view = self
                     .instance_belt
                     .write_buffer(encoder, &buffer, 0, view_size, device);
 
-                let end = chunk.len() * Self::STRUCT_SIZE as usize;
+                let end = chunk.len() * Self::INSTANCE_SIZE as usize;
                 view[0..end].copy_from_slice(bytemuck::cast_slice(chunk));
-                self.ready_instance_buffers
-                    .push_back((part_type, chunk.len(), buffer));
+                self.ready_instance_buffers.push_back(ReadyBuffer {
+                    part_type: part_type,
+                    len: chunk.len(),
+                    buffer: buffer,
+                    bind_and_offsets: None,
+                });
             }
             self.instance_dirty = true;
         }
@@ -196,8 +233,9 @@ impl PartQueue {
     {
         while let Some(ready_buffer) = self.ready_instance_buffers.pop_front() {
             callback(&ready_buffer);
+
             match ready_buffer {
-                (_, _, buffer) => {
+                ReadyBuffer { buffer, .. } => {
                     self.unused_instance_buffers.push_back(buffer);
                 }
             }
@@ -211,8 +249,15 @@ impl PartQueue {
         while let Some(ready_buffer) = self.ready_uniform_buffers.pop_front() {
             callback(&ready_buffer);
             match ready_buffer {
-                (_, _, buffer) => {
-                    self.unused_uniform_buffers.push_back(buffer);
+                ReadyBuffer {
+                    buffer,
+                    bind_and_offsets,
+                    ..
+                } => {
+                    let (bind_group, _) =
+                        bind_and_offsets.expect("Bind Groups should accompany uniform buffer");
+
+                    self.unused_uniform_buffers.push_back((buffer, bind_group));
                 }
             }
         }

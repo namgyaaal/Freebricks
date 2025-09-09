@@ -1,9 +1,8 @@
-use core::panic;
 use std::ops::{Deref, DerefMut};
 
 use bevy_ecs::prelude::*;
 use glam::{Mat4, Vec3, Vec4};
-use wgpu::{naga::front, util::DeviceExt};
+use wgpu::util::DeviceExt;
 
 use crate::render::render_state::RenderState;
 
@@ -72,29 +71,29 @@ impl Frustum {
         far: Plane::ZERO,
     };
 
-    fn new(camera: &Camera, aspect: f32, fovY: f32, zNear: f32, zFar: f32) -> Frustum {
-        let halfVSize = zFar * f32::tan(fovY * 0.5);
-        let halfHSide = halfVSize * aspect;
-        let frontMultFar = zFar * camera.front;
+    fn new(camera: &Camera, aspect: f32, fov_y: f32, z_near: f32, z_far: f32) -> Frustum {
+        let half_v_size = z_far * f32::tan(fov_y * 0.5);
+        let half_h_side = half_v_size * aspect;
+        let front_mult_far = z_far * camera.front;
 
         Frustum {
-            near: Plane::new(camera.position + zNear * camera.front, camera.front),
-            far: Plane::new(camera.position + frontMultFar, -camera.front),
+            near: Plane::new(camera.position + z_near * camera.front, camera.front),
+            far: Plane::new(camera.position + front_mult_far, -camera.front),
             right: Plane::new(
                 camera.position,
-                Vec3::cross(frontMultFar - camera.right * halfHSide, camera.up),
+                Vec3::cross(front_mult_far - camera.right * half_h_side, camera.up),
             ),
             left: Plane::new(
                 camera.position,
-                Vec3::cross(camera.up, frontMultFar + camera.right * halfHSide),
+                Vec3::cross(camera.up, front_mult_far + camera.right * half_h_side),
             ),
             top: Plane::new(
                 camera.position,
-                Vec3::cross(camera.right, frontMultFar - camera.up * halfHSide),
+                Vec3::cross(camera.right, front_mult_far - camera.up * half_h_side),
             ),
             bottom: Plane::new(
                 camera.position,
-                Vec3::cross(frontMultFar + camera.up * halfVSize, camera.right),
+                Vec3::cross(front_mult_far + camera.up * half_v_size, camera.right),
             ),
         }
     }
