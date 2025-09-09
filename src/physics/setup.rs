@@ -7,7 +7,7 @@ use crate::{
         physics::{Anchor, BodyHandle, FAnchored, FUnanchored, ShapeHandle},
     },
     physics::{physics_state::PhysicsState, utils::reduce_to_scaled_hull},
-    render::parts::WEDGE_VERTICES,
+    render::parts::part_buffers::WEDGE_VERTICES,
 };
 use bevy_ecs::prelude::*;
 use rapier3d::prelude::*;
@@ -98,7 +98,7 @@ fn get_builder(part: &QPartPhysicsItem) -> ColliderBuilder {
         }
         Part::Ball => {
             assert!(size.x - size.y < f32::EPSILON && size.y - size.z < f32::EPSILON);
-            ColliderBuilder::ball(size.x / 2.0)
+            ColliderBuilder::ball(size.x)
         }
         Part::Brick | _ => ColliderBuilder::cuboid(size.x, size.y, size.z),
     }

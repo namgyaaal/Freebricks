@@ -4,7 +4,7 @@ use bevy_ecs::entity::Entity;
 use bevy_platform::collections::{HashMap, HashSet};
 use glam::{IVec3, Vec3};
 
-use crate::{ecs::parts::Part, render::parts::PartInstance};
+use crate::{ecs::parts::Part, render::parts::part_formats::PartInstance};
 use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

@@ -5,8 +5,8 @@ use crate::{
     render::{
         camera::Camera,
         debug_draw::DebugDraw,
+        parts::part_renderer::PartRenderer,
         render_state::{FrameInfo, RenderState},
-        scene_tree::SceneTree,
     },
 };
 use anyhow::Result;
@@ -28,34 +28,22 @@ pub fn foobar(
     mut storage: Local<Vec<Vec3>>,
 ) {
     //let mut rng = SmallRng::seed_from_u64(*count);
-    return;
-    if *count < 60 {
-        *count += 1;
-        return;
+    /*
+    let mut rng = SmallRng::seed_from_u64(*count);
+    if *count % 30 == 0 {
+        commands.spawn((
+            Part::Ball,
+            Position(Vec3::new(
+                f32::cos(rng.random()),
+                20.0,
+                f32::cos(rng.random()),
+            )),
+            Physical,
+            Size(Vec3::new(2.0, 2.0, 2.0)),
+            Color([rng.random(), rng.random(), rng.random(), rng.random()]),
+        ));
     }
-
-    for (e, mut c) in test.iter_mut() {
-        commands.entity(e).despawn();
-        *count = 0;
-        return;
-        /*
-
-        let e_index = e.index() as usize;
-
-        if *count == 0 {
-            if e_index >= storage.len() {
-                storage.resize(e_index + 1, Vec3::ZERO);
-            }
-            storage[e_index] = c.0;
-        }
-
-        c.x = storage[e_index].x + (*count as f32 / 120.0).cos() * 100.0;
-        c.z = storage[e_index].z + (*count as f32 / 120.0).sin() * 100.0;
-        //if rng.random_bool(0.01) {
-        //    *c = Color([rng.random(), rng.random(), rng.random(), 255]);
-        //}*/
-    }
-    *count += 1;
+    *count += 1;*/
 }
 
 pub struct Game {
@@ -97,10 +85,10 @@ impl Game {
         init_schedule.add_systems(
             (
                 Camera::init,
-                SceneTree::init,
+                PartRenderer::init,
                 DebugDraw::init,
                 build_models,
-                PhysicsState::setup_system(),
+                //PhysicsState::setup_system(),
             )
                 .chain(),
         );
@@ -109,27 +97,27 @@ impl Game {
         post_update_schedule.add_systems(
             (
                 handle_model_transform,
-                PhysicsState::update_system(false),
-                SceneTree::remove_bricks,
-                SceneTree::add_bricks,
-                SceneTree::update_bricks,
+                PhysicsState::update_system(true),
+                PartRenderer::remove_bricks,
+                PartRenderer::add_bricks,
+                PartRenderer::update_bricks,
             )
                 .chain(),
         );
 
         render_schedule.add_systems(
             (
-                SceneTree::write_buffers,
+                PartRenderer::write_buffers,
                 RenderState::begin_pass,
-                SceneTree::render,
+                PartRenderer::render,
                 DebugDraw::render,
                 RenderState::flush,
-                SceneTree::recall,
+                PartRenderer::recall,
             )
                 .chain(),
         );
 
-        let mut parts = Vec::new();
+        //let mut parts = Vec::new();
 
         let mut rng = SmallRng::seed_from_u64(42);
 
@@ -141,69 +129,55 @@ impl Game {
             Anchor,
         ));
 
-        for i in -32..32 {
-            for j in -4..4 {
-                let x: f32 = (rand::random::<u8>() % 4) as f32;
-                let y: f32 = (rand::random::<u8>() % 4) as f32;
-
-                parts.push((
-                    Part::Brick,
-                    Position(Vec3::new(
-                        (i * 6) as f32,
-                        y + 3.0 + (rng.random_range(0..20) as f32),
-                        (j * 6) as f32,
-                    )),
-                    Size(Vec3::new(1.0 + x, 1.0 + x, 1.0 + x)),
-                    Color([rand::random(), rand::random(), rand::random(), 255]),
-                    Physical,
-                ));
-            }
-        }
-        /*
-        // Do anything here
         let mut parts = Vec::new();
-        world.spawn((
-            Part::default(),
-            Position(Vec3::new(0.0, -7.0, 0.0)),
-            Size(Vec3::new(20.0, 1.0, 20.0)),
-            Tag1,
-        ));
 
         parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -10.0, 0.0)),
-            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Part::Brick,
+            Position(Vec3::new(0.0, 4.0, 2.0)),
+            Size(Vec3::new(4.0, 4.0, 1.0)),
+            Color([255, 0, 0, 255]),
         ));
-
         parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -8.0, 0.0)),
-            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Part::Brick,
+            Position(Vec3::new(0.0, 4.0, 4.0)),
+            Size(Vec3::new(4.0, 4.0, 1.0)),
+            Color([0, 255, 0, 255]),
         ));
-        /*
         parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -7.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
+            Part::Brick,
+            Position(Vec3::new(0.0, 4.0, 6.0)),
+            Size(Vec3::new(4.0, 4.0, 1.0)),
+            Color([0, 0, 255, 255]),
         ));
-        */
-        parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -11.0, 0.0)),
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));*/
-
-        /*
-        world.spawn((
-            Part::default(),
-            Position(Vec3::new(0.0, -9.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));*/
 
         let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
 
+        /*
+        for i in -4..4 {
+            for j in -4..4 {
+                for part_type in [Part::Brick, Part::Ball, Part::Wedge] {
+                    let x: f32 = (rand::random::<u8>() % 4) as f32;
+                    let y: f32 = (rand::random::<u8>() % 4) as f32;
+
+                    parts.push((
+                        part_type,
+                        Position(Vec3::new(
+                            (i * 6) as f32,
+                            y + 3.0 + (rng.random_range(0..20) as f32),
+                            (j * 6) as f32,
+                        )),
+                        Size(Vec3::new(1.0 + x, 1.0 + x, 1.0 + x)),
+                        Color([rand::random(), rand::random(), rand::random(), 255]),
+                        Physical,
+                    ));
+                }
+            }
+
+        }
+        */
+        /*
+        //let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
+         */
         // Initialize states and globals, don't need it further and we only pass on update and render
         init_schedule.run(&mut world);
         Ok(Self {

@@ -42,7 +42,7 @@ struct UniformPartData {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) color: vec4<f32>,
     @location(1) tex_coords: vec2<f32>,
     @location(2) stud_index: u32,
     @location(3) world_normal: vec3<f32>,
@@ -69,7 +69,7 @@ fn vs_main_uniform(
     out.world_position = world_position.xyz; 
     out.world_normal = (normal_matrix * vec4<f32>(model.normal, 1.0)).xyz;
     out.clip_position = camera.view_proj * world_position; 
-    out.color = part_uniform.color.xyz;
+    out.color = part_uniform.color;
 
     out.tex_coords = model.tex_coords * vec2<f32>(
         part_uniform.size[model.tex_scale.x],
@@ -105,7 +105,7 @@ fn vs_main_instanced(
     out.world_position = world_position.xyz; 
     out.world_normal = normal_matrix * model.normal;
     out.clip_position = camera.view_proj * world_position; 
-    out.color = instance.color.xyz;
+    out.color = instance.color;
 
     out.tex_coords = model.tex_coords * vec2<f32>(
         instance.size[model.tex_scale.x],
@@ -125,12 +125,7 @@ var s_diffuse: sampler;
 var<uniform> light: Light;
 
 @fragment
-fn fs_main_uniform(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4(0.0, 0.0, 0.0, 1.0);
-}
-
-@fragment
-fn fs_main_instanced(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.tex_coords; 
     // Specular lighting
     let norm = normalize(in.world_normal);
@@ -144,7 +139,7 @@ fn fs_main_instanced(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_strength = vec3<f32>(1.0, 1.0, 1.0) * 0.1;
 
 
-    var color = vec4<f32>(in.color, 1.0);
+    var color = in.color; 
     // Apply stud texturing 
     if in.stud_index > 0 {
         let stud_diffuse = textureSample(t_diffuse, s_diffuse, uv, in.stud_index);

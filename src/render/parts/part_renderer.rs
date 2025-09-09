@@ -10,20 +10,24 @@ use crate::{
     ecs::parts::*,
     render::{
         camera::*,
-        details::part_details::{part_details_get, part_details_init},
-        part_queue::PartQueue,
-        parts::*,
+        parts::{
+            part_buffers::{part_buffer_fetch, part_buffer_init, part_index_count},
+            part_details::{part_details_get, part_details_init},
+            part_formats::PartInstance,
+            part_queue::PartQueue,
+        },
         render_state::{FrameInfo, RenderState},
         scene_map::{SceneMap, SpatialKey},
         texture::*,
     },
 };
 use bevy_ecs::prelude::*;
+use bevy_platform::collections::HashMap;
 use glam::Vec3;
-use wgpu::{DynamicOffset, util::DeviceExt};
+use wgpu::util::DeviceExt;
 
 #[derive(Resource)]
-pub struct SceneTree {
+pub struct PartRenderer {
     pub instancing_bind_group: wgpu::BindGroup,
     pub uniform_bind_groups: Vec<wgpu::BindGroup>,
     pub removal_buffer: Vec<Entity>,
@@ -31,7 +35,7 @@ pub struct SceneTree {
     pub part_queue: PartQueue,
 }
 
-impl SceneTree {
+impl PartRenderer {
     /// Called at beginning of game.
     /// Requires renderstate to be initialized and must be called before gen_bricks
     pub fn init(world: &mut World) -> Result<()> {
@@ -54,6 +58,7 @@ impl SceneTree {
         let device = &render_state.device;
         let queue = &render_state.queue;
         let config = &render_state.config;
+
         part_buffer_init(device);
         part_details_init(device, config, Cow::from(shader_source));
         /*
@@ -119,13 +124,13 @@ impl SceneTree {
         Ok(())
     }
 
-    pub fn handle_part_removal(trigger: Trigger<OnRemove, Part>, mut st: ResMut<SceneTree>) {
+    pub fn handle_part_removal(trigger: Trigger<OnRemove, Part>, mut st: ResMut<PartRenderer>) {
         let entity = trigger.target();
         st.removal_buffer.push(entity);
     }
 
     /// Adjust possible instance and uniform buffers on event of objects being deleted
-    pub fn remove_bricks(mut st: ResMut<SceneTree>) -> Result<()> {
+    pub fn remove_bricks(mut st: ResMut<PartRenderer>) -> Result<()> {
         let scene_tree = st.deref_mut();
         if scene_tree.removal_buffer.is_empty() {
             return Ok(());
@@ -142,7 +147,7 @@ impl SceneTree {
     /// Reorders the BufferIndex component to its position in the instance buffer
     pub fn add_bricks(
         _state: Res<RenderState>,
-        mut st: ResMut<SceneTree>,
+        mut st: ResMut<PartRenderer>,
         query: Query<QPartRenderUpdate, FPartAdd>,
     ) -> Result<()> {
         //let queue = &state.queue;
@@ -170,7 +175,7 @@ impl SceneTree {
 
     pub fn update_bricks(
         scene: Res<RenderState>,
-        mut st: ResMut<SceneTree>,
+        mut st: ResMut<PartRenderer>,
         query: Query<QPart, FPartChangeTransform>,
     ) -> Result<()> {
         let st = st.deref_mut();
@@ -199,7 +204,7 @@ impl SceneTree {
 
     pub fn write_buffers(
         state: Res<RenderState>,
-        mut scene_tree: ResMut<SceneTree>,
+        mut scene_tree: ResMut<PartRenderer>,
         mut info: ResMut<FrameInfo>,
         camera: Res<Camera>,
     ) {
@@ -231,22 +236,27 @@ impl SceneTree {
         });
 
         // TODO: Find out better way to handle this
-        let mut uniforms: Vec<PartInstance> = Vec::new();
+        let mut uniforms: HashMap<Part, Vec<PartInstance>> = HashMap::new();
         for key in keys {
             let Some(cell) = scene_tree.map.spatial_map.get(key) else {
                 continue;
             };
-            uniforms.extend_from_slice(&cell.buffers);
+
+            let vec = uniforms.entry(key.part).or_insert(Vec::new());
+            vec.extend_from_slice(&cell.buffers);
         }
 
-        scene_tree
-            .part_queue
-            .map_slice(device, encoder, Part::Brick, &uniforms);
+        for (key, value) in uniforms {
+            scene_tree
+                .part_queue
+                .map_slice(device, encoder, key, &value);
+        }
+
         scene_tree.part_queue.submit();
     }
 
     pub fn render(
-        mut scene_tree: ResMut<SceneTree>,
+        mut scene_tree: ResMut<PartRenderer>,
         _scene: Res<RenderState>,
         mut info: ResMut<FrameInfo>,
     ) {
@@ -264,7 +274,11 @@ impl SceneTree {
             pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
 
             pass.set_vertex_buffer(1, ready.buffer.slice(..));
-            pass.draw_indexed(0..BRICK_INDICES.len() as _, 0, 0..ready.len as _);
+            pass.draw_indexed(
+                0..part_index_count(ready.part_type) as _,
+                0,
+                0..ready.len as _,
+            );
         });
 
         pass.set_pipeline(&part_details_get().uniform_pipeline);
@@ -282,12 +296,12 @@ impl SceneTree {
 
             for offset in offsets {
                 pass.set_bind_group(1, bind_group, &[*offset]);
-                pass.draw_indexed(0..BRICK_INDICES.len() as _, 0, 0..1);
+                pass.draw_indexed(0..part_index_count(ready.part_type) as _, 0, 0..1);
             }
         });
     }
 
-    pub fn recall(mut scene_tree: ResMut<SceneTree>) {
+    pub fn recall(mut scene_tree: ResMut<PartRenderer>) {
         scene_tree.part_queue.recall();
     }
 }

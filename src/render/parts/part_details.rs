@@ -2,7 +2,7 @@ use std::{borrow::Cow, sync::OnceLock};
 use wgpu::SurfaceConfiguration;
 
 use crate::render::{
-    parts::{PartInstance, PartVertex},
+    parts::part_formats::{PartInstance, PartVertex},
     texture::Texture,
 };
 
@@ -134,11 +134,11 @@ impl PartDetails {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main_instanced"),
+                    entry_point: Some("fs_main"),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -179,11 +179,11 @@ impl PartDetails {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main_instanced"),
+                    entry_point: Some("fs_main"),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),

@@ -4,9 +4,9 @@ use wgpu::{CommandEncoder, util::StagingBelt};
 
 use crate::{
     ecs::parts::Part,
-    render::{
-        details::part_details::part_details_get,
-        parts::{PartInstance, PartUniform},
+    render::parts::{
+        part_details::part_details_get,
+        part_formats::{PartInstance, PartUniform},
     },
 };
 

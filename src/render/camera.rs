@@ -133,7 +133,7 @@ impl Camera {
         // Construct defaults
         let world_up = Vec3::new(0.0, 1.0, 0.0);
 
-        let eye = Vec3::new(0.0, 20.0, 0.0);
+        let eye = Vec3::new(0.0, 10.0, -4.0);
         let target = Vec3::new(0.0, 3.0, 10.0);
 
         let front = (target - eye).normalize();
@@ -213,16 +213,16 @@ impl Camera {
         self.up = up;
     }
 
-    pub fn update(mut camera: ResMut<Camera>, state: Res<RenderState>, mut counter: Local<f32>) {
+    pub fn update(mut camera: ResMut<Camera>, state: Res<RenderState>, mut _counter: Local<f32>) {
         let camera = camera.deref_mut();
         let queue = &state.queue;
 
-        *counter += 0.01;
+        // *counter += 0.01;
 
-        let x = counter.cos() * 20.0;
-        let z = counter.sin() * 20.0;
+        //let x = counter.cos() * 20.0;
+        //let z = counter.sin() * 20.0;
 
-        camera.look_at(camera.position, Vec3::new(x, 10.0, z));
+        //camera.look_at(camera.position, Vec3::new(x, 10.0, z));
         let aspect = state.config.width as f32 / state.config.height as f32;
 
         camera.frustum = Frustum::new(camera.deref(), aspect, 70.0_f32.to_radians(), 0.1, 800.0);
