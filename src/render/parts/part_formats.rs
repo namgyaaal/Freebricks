@@ -80,6 +80,22 @@ impl PartVertex {
     }
 }
 
+impl HasPosition for PartVertex {
+    fn get_position(&self) -> &[f32; 3] {
+        &self.position
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
+pub struct PartInstance {
+    pub model: [[f32; 3]; 4],
+    pub normal: [[f32; 3]; 3],
+    pub color: [u8; 4],
+    pub size: [f32; 3],
+    pub stud_layout: u32,
+}
+
 impl PartInstance {
     pub fn desc_instancing() -> wgpu::VertexBufferLayout<'static> {
         use std::mem::size_of;
@@ -146,22 +162,6 @@ impl PartInstance {
             ],
         }
     }
-}
-
-impl HasPosition for PartVertex {
-    fn get_position(&self) -> &[f32; 3] {
-        &self.position
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable, Debug)]
-pub struct PartInstance {
-    pub model: [[f32; 3]; 4],
-    pub normal: [[f32; 3]; 3],
-    pub color: [u8; 4],
-    pub size: [f32; 3],
-    pub stud_layout: u32,
 }
 
 #[repr(C)]

@@ -10,238 +10,253 @@ use crate::ecs::parts::Part;
 use crate::render::parts::part_formats::PartVertex;
 
 static PART_BUFFERS: OnceLock<HashMap<Part, (wgpu::Buffer, wgpu::Buffer)>> = OnceLock::new();
-pub fn part_buffer_init(device: &wgpu::Device) {
-    let mut map: HashMap<Part, (wgpu::Buffer, wgpu::Buffer)> = HashMap::new();
-    // Brick
-    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Brick Vertex Buffer"),
-        contents: bytemuck::cast_slice(BRICK_VERTICES),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
 
-    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Brick Index Buffer"),
-        contents: bytemuck::cast_slice(BRICK_INDICES),
-        usage: wgpu::BufferUsages::INDEX,
-    });
-    map.insert(Part::Brick, (vb, ib));
+/// Global Part buffer information contingent on a device.
+///
+/// Note that this doesn't handle meshes and will panic if they are retrieved
+///     via. fetch() or get_index_count()
+pub struct PartBuffers {}
 
-    // Wedge
-    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Brick Vertex Buffer"),
-        contents: bytemuck::cast_slice(WEDGE_VERTICES),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
+impl PartBuffers {
+    pub fn init(device: &wgpu::Device) {
+        let mut map: HashMap<Part, (wgpu::Buffer, wgpu::Buffer)> = HashMap::new();
+        // Brick
+        let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Brick Vertex Buffer"),
+            contents: bytemuck::cast_slice(&*BRICK_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Brick Index Buffer"),
-        contents: bytemuck::cast_slice(WEDGE_INDICES),
-        usage: wgpu::BufferUsages::INDEX,
-    });
-    map.insert(Part::Wedge, (vb, ib));
+        let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Brick Index Buffer"),
+            contents: bytemuck::cast_slice(&*BRICK_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        map.insert(Part::Brick, (vb, ib));
 
-    // Ball
-    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Brick Vertex Buffer"),
-        contents: bytemuck::cast_slice(&*BALL_VERTICES),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
+        // Wedge
+        let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Brick Vertex Buffer"),
+            contents: bytemuck::cast_slice(&*WEDGE_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Brick Index Buffer"),
-        contents: bytemuck::cast_slice(&*BALL_INDICES),
-        usage: wgpu::BufferUsages::INDEX,
-    });
-    map.insert(Part::Ball, (vb, ib));
+        let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Brick Index Buffer"),
+            contents: bytemuck::cast_slice(&*WEDGE_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        map.insert(Part::Wedge, (vb, ib));
 
-    PART_BUFFERS
-        .set(map)
-        .expect("Can't call part_buffer_init() twice");
-}
+        // Ball
+        let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Brick Vertex Buffer"),
+            contents: bytemuck::cast_slice(&*BALL_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-pub fn part_buffer_fetch(part_type: Part) -> (&'static wgpu::Buffer, &'static wgpu::Buffer) {
-    let map = PART_BUFFERS
-        .get()
-        .expect("Called part_buffer_fetch() before part_buffer_init()");
+        let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Brick Index Buffer"),
+            contents: bytemuck::cast_slice(&*BALL_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        map.insert(Part::Ball, (vb, ib));
 
-    let pair = map.get(&part_type).expect("Part not included");
+        PART_BUFFERS
+            .set(map)
+            .expect("Can't call part_buffer_init() twice");
+    }
 
-    (&pair.0, &pair.1)
-}
+    /// Retrieve a vertex and index buffer.
+    pub fn fetch(part_type: Part) -> (&'static wgpu::Buffer, &'static wgpu::Buffer) {
+        let map = PART_BUFFERS
+            .get()
+            .expect("Called part_buffer_fetch() before part_buffer_init()");
 
-pub fn part_index_count(part_type: Part) -> usize {
-    match part_type {
-        Part::Brick => 36,
-        Part::Wedge => 24,
-        Part::Ball => BALL_INDICES.len(),
-        _ => panic!("part_index_count() not implemented"),
+        let pair = map.get(&part_type).expect("Part not included");
+
+        (&pair.0, &pair.1)
+    }
+
+    pub fn get_index_count(part_type: Part) -> usize {
+        match part_type {
+            Part::Brick => BRICK_INDICES.len(),
+            Part::Wedge => WEDGE_INDICES.len(),
+            Part::Ball => BALL_INDICES.len(),
+            _ => panic!("PartBuffers::get_index_count() doesn't cover this type"),
+        }
     }
 }
 
-pub const BRICK_VERTICES: &[PartVertex] = &[
-    // Front face (Z+)
-    PartVertex {
-        position: [-0.5, 0.5, 0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [0.0, 0.0, 1.0],
-        tex_scale: [0, 1],
-    },
-    PartVertex {
-        position: [0.5, 0.5, 0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [0.0, 0.0, 1.0],
-        tex_scale: [0, 1],
-    },
-    PartVertex {
-        position: [0.5, -0.5, 0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [0.0, 0.0, 1.0],
-        tex_scale: [0, 1],
-    },
-    PartVertex {
-        position: [-0.5, -0.5, 0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [0.0, 0.0, 1.0],
-        tex_scale: [0, 1],
-    },
-    // Bottom Face (Y-)
-    PartVertex {
-        position: [0.5, -0.5, 0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [0.0, -1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    PartVertex {
-        position: [0.5, -0.5, -0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [0.0, -1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    PartVertex {
-        position: [-0.5, -0.5, -0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [0.0, -1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    PartVertex {
-        position: [-0.5, -0.5, 0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [0.0, -1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    // Back Face (Z-)
-    PartVertex {
-        position: [0.5, 0.5, -0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    PartVertex {
-        position: [-0.5, 0.5, -0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    PartVertex {
-        position: [-0.5, -0.5, -0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    PartVertex {
-        position: [0.5, -0.5, -0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [0.0, 0.0, -1.0],
-        tex_scale: [0, 1],
-    },
-    // Top Face (Y+)
-    PartVertex {
-        position: [0.5, 0.5, -0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    PartVertex {
-        position: [0.5, 0.5, 0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    PartVertex {
-        position: [-0.5, 0.5, 0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    PartVertex {
-        position: [-0.5, 0.5, -0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [0.0, 1.0, 0.0],
-        tex_scale: [2, 0],
-    },
-    // Right Face (X+)
-    PartVertex {
-        position: [0.5, 0.5, 0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    PartVertex {
-        position: [0.5, 0.5, -0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    PartVertex {
-        position: [0.5, -0.5, -0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    PartVertex {
-        position: [0.5, -0.5, 0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    // Left Face (X-)
-    PartVertex {
-        position: [-0.5, 0.5, -0.5],
-        tex_coords: [0.0, 0.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    PartVertex {
-        position: [-0.5, 0.5, 0.5],
-        tex_coords: [1.0, 0.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    PartVertex {
-        position: [-0.5, -0.5, 0.5],
-        tex_coords: [1.0, 1.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-    PartVertex {
-        position: [-0.5, -0.5, -0.5],
-        tex_coords: [0.0, 1.0],
-        normals: [-1.0, 0.0, 0.0],
-        tex_scale: [2, 1],
-    },
-];
+pub const BRICK_VERTICES: LazyLock<Vec<PartVertex>> = LazyLock::new(|| {
+    Vec::from([
+        // Front face (Z+)
+        PartVertex {
+            position: [-0.5, 0.5, 0.5],
+            tex_coords: [0.0, 0.0],
+            normals: [0.0, 0.0, 1.0],
+            tex_scale: [0, 1],
+        },
+        PartVertex {
+            position: [0.5, 0.5, 0.5],
+            tex_coords: [1.0, 0.0],
+            normals: [0.0, 0.0, 1.0],
+            tex_scale: [0, 1],
+        },
+        PartVertex {
+            position: [0.5, -0.5, 0.5],
+            tex_coords: [1.0, 1.0],
+            normals: [0.0, 0.0, 1.0],
+            tex_scale: [0, 1],
+        },
+        PartVertex {
+            position: [-0.5, -0.5, 0.5],
+            tex_coords: [0.0, 1.0],
+            normals: [0.0, 0.0, 1.0],
+            tex_scale: [0, 1],
+        },
+        // Bottom Face (Y-)
+        PartVertex {
+            position: [0.5, -0.5, 0.5],
+            tex_coords: [0.0, 0.0],
+            normals: [0.0, -1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        PartVertex {
+            position: [0.5, -0.5, -0.5],
+            tex_coords: [1.0, 0.0],
+            normals: [0.0, -1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        PartVertex {
+            position: [-0.5, -0.5, -0.5],
+            tex_coords: [1.0, 1.0],
+            normals: [0.0, -1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        PartVertex {
+            position: [-0.5, -0.5, 0.5],
+            tex_coords: [0.0, 1.0],
+            normals: [0.0, -1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        // Back Face (Z-)
+        PartVertex {
+            position: [0.5, 0.5, -0.5],
+            tex_coords: [0.0, 0.0],
+            normals: [0.0, 0.0, -1.0],
+            tex_scale: [0, 1],
+        },
+        PartVertex {
+            position: [-0.5, 0.5, -0.5],
+            tex_coords: [1.0, 0.0],
+            normals: [0.0, 0.0, -1.0],
+            tex_scale: [0, 1],
+        },
+        PartVertex {
+            position: [-0.5, -0.5, -0.5],
+            tex_coords: [1.0, 1.0],
+            normals: [0.0, 0.0, -1.0],
+            tex_scale: [0, 1],
+        },
+        PartVertex {
+            position: [0.5, -0.5, -0.5],
+            tex_coords: [0.0, 1.0],
+            normals: [0.0, 0.0, -1.0],
+            tex_scale: [0, 1],
+        },
+        // Top Face (Y+)
+        PartVertex {
+            position: [0.5, 0.5, -0.5],
+            tex_coords: [0.0, 0.0],
+            normals: [0.0, 1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        PartVertex {
+            position: [0.5, 0.5, 0.5],
+            tex_coords: [1.0, 0.0],
+            normals: [0.0, 1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        PartVertex {
+            position: [-0.5, 0.5, 0.5],
+            tex_coords: [1.0, 1.0],
+            normals: [0.0, 1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        PartVertex {
+            position: [-0.5, 0.5, -0.5],
+            tex_coords: [0.0, 1.0],
+            normals: [0.0, 1.0, 0.0],
+            tex_scale: [2, 0],
+        },
+        // Right Face (X+)
+        PartVertex {
+            position: [0.5, 0.5, 0.5],
+            tex_coords: [0.0, 0.0],
+            normals: [1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        PartVertex {
+            position: [0.5, 0.5, -0.5],
+            tex_coords: [1.0, 0.0],
+            normals: [1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        PartVertex {
+            position: [0.5, -0.5, -0.5],
+            tex_coords: [1.0, 1.0],
+            normals: [1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        PartVertex {
+            position: [0.5, -0.5, 0.5],
+            tex_coords: [0.0, 1.0],
+            normals: [1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        // Left Face (X-)
+        PartVertex {
+            position: [-0.5, 0.5, -0.5],
+            tex_coords: [0.0, 0.0],
+            normals: [-1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        PartVertex {
+            position: [-0.5, 0.5, 0.5],
+            tex_coords: [1.0, 0.0],
+            normals: [-1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        PartVertex {
+            position: [-0.5, -0.5, 0.5],
+            tex_coords: [1.0, 1.0],
+            normals: [-1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+        PartVertex {
+            position: [-0.5, -0.5, -0.5],
+            tex_coords: [0.0, 1.0],
+            normals: [-1.0, 0.0, 0.0],
+            tex_scale: [2, 1],
+        },
+    ])
+});
 
-pub const BRICK_INDICES: &[u16] = &[
-    0, 1, 2, 0, 2, 3, // Front
-    4, 5, 6, 4, 6, 7, // Bottom
-    8, 9, 10, 8, 10, 11, // Back
-    12, 13, 14, 12, 14, 15, // Top
-    16, 17, 18, 16, 18, 19, // Right
-    20, 21, 22, 20, 22, 23, // Left
-];
+pub const BRICK_INDICES: LazyLock<Vec<u16>> = LazyLock::new(|| {
+    Vec::from([
+        0, 1, 2, 0, 2, 3, // Front
+        4, 5, 6, 4, 6, 7, // Bottom
+        8, 9, 10, 8, 10, 11, // Back
+        12, 13, 14, 12, 14, 15, // Top
+        16, 17, 18, 16, 18, 19, // Right
+        20, 21, 22, 20, 22, 23, // Left
+    ])
+});
 
-pub const WEDGE_VERTICES: &[PartVertex] = &[
+pub const WEDGE_VERTICES: LazyLock<Vec<PartVertex>> = LazyLock::new(||
     // Front face (Z+)
+    Vec::from([
     PartVertex {
         position: [-0.5, 0.5, 0.5],
         tex_coords: [0.0, 0.0],
@@ -355,15 +370,17 @@ pub const WEDGE_VERTICES: &[PartVertex] = &[
         normals: [-1.0, 0.0, 0.0],
         tex_scale: [2, 1],
     },
-];
+]));
 
-pub const WEDGE_INDICES: &[u16] = &[
-    0, 1, 2, 0, 2, 3, // Front
-    4, 5, 6, 4, 6, 7, // Bottom
-    8, 9, 10, 8, 10, 11, // Wedge
-    12, 13, 14, // Right
-    15, 16, 17, // Left
-];
+pub const WEDGE_INDICES: LazyLock<Vec<u16>> = LazyLock::new(|| {
+    Vec::from([
+        0, 1, 2, 0, 2, 3, // Front
+        4, 5, 6, 4, 6, 7, // Bottom
+        8, 9, 10, 8, 10, 11, // Wedge
+        12, 13, 14, // Right
+        15, 16, 17, // Left
+    ])
+});
 
 pub static BALL_VERTICES: LazyLock<Vec<PartVertex>> = LazyLock::new(|| {
     // https://www.songho.ca/opengl/gl_sphere.html

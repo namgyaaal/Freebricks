@@ -135,13 +135,13 @@ impl Game {
             Part::Brick,
             Position(Vec3::new(0.0, 4.0, 2.0)),
             Size(Vec3::new(4.0, 4.0, 1.0)),
-            Color([255, 0, 0, 255]),
+            Color([255, 0, 0, 200]),
         ));
         parts.push((
             Part::Brick,
             Position(Vec3::new(0.0, 4.0, 4.0)),
             Size(Vec3::new(4.0, 4.0, 1.0)),
-            Color([0, 255, 0, 255]),
+            Color([0, 255, 0, 100]),
         ));
         parts.push((
             Part::Brick,
@@ -152,32 +152,6 @@ impl Game {
 
         let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
 
-        /*
-        for i in -4..4 {
-            for j in -4..4 {
-                for part_type in [Part::Brick, Part::Ball, Part::Wedge] {
-                    let x: f32 = (rand::random::<u8>() % 4) as f32;
-                    let y: f32 = (rand::random::<u8>() % 4) as f32;
-
-                    parts.push((
-                        part_type,
-                        Position(Vec3::new(
-                            (i * 6) as f32,
-                            y + 3.0 + (rng.random_range(0..20) as f32),
-                            (j * 6) as f32,
-                        )),
-                        Size(Vec3::new(1.0 + x, 1.0 + x, 1.0 + x)),
-                        Color([rand::random(), rand::random(), rand::random(), 255]),
-                        Physical,
-                    ));
-                }
-            }
-
-        }
-        */
-        /*
-        //let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
-         */
         // Initialize states and globals, don't need it further and we only pass on update and render
         init_schedule.run(&mut world);
         Ok(Self {

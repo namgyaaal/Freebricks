@@ -11,19 +11,17 @@ use crate::{
     render::{
         camera::*,
         parts::{
-            part_buffers::{part_buffer_fetch, part_buffer_init, part_index_count},
-            part_details::{part_details_get, part_details_init},
-            part_formats::PartInstance,
-            part_queue::PartQueue,
+            part_buffers::PartBuffers, part_details::PartDetails, part_formats::PartInstance,
+            part_queue::DefaultPartQueue,
         },
         render_state::{FrameInfo, RenderState},
-        scene_map::{SceneMap, SpatialKey},
+        spatial_map::{DefaultSpatialKey, DefaultSpatialMap, SpatialMap},
         texture::*,
     },
 };
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::HashMap;
-use glam::Vec3;
+use glam::{Affine3A, Vec3, Vec3A};
 use wgpu::util::DeviceExt;
 
 #[derive(Resource)]
@@ -31,8 +29,9 @@ pub struct PartRenderer {
     pub instancing_bind_group: wgpu::BindGroup,
     pub uniform_bind_groups: Vec<wgpu::BindGroup>,
     pub removal_buffer: Vec<Entity>,
-    pub map: SceneMap<32>,
-    pub part_queue: PartQueue,
+    pub map: DefaultSpatialMap,
+    // Part type and opacity
+    pub part_queue: DefaultPartQueue,
 }
 
 impl PartRenderer {
@@ -59,12 +58,12 @@ impl PartRenderer {
         let queue = &render_state.queue;
         let config = &render_state.config;
 
-        part_buffer_init(device);
-        part_details_init(device, config, Cow::from(shader_source));
+        PartBuffers::init(device);
+        PartDetails::init(device, config, Cow::from(shader_source));
         /*
            Brick Texture Layout
         */
-        let part_layout = &part_details_get().part_bind_layout;
+        let part_layout = &PartDetails::get().part_bind_layout;
         let brick_texture = Texture::create_brick_texture(&brick_diffuse, device, queue);
 
         let dir = glam::Vec3::new(-0.5, -0.7, -1.0).normalize();
@@ -100,24 +99,14 @@ impl PartRenderer {
             ],
         });
 
-        /*
-        let mut binding = camera_buffer.as_entire_buffer_binding();
-        binding.offset = 0;
-
-        wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::Buffer(binding),
-        };
-        */
-
-        let pq = PartQueue::new(device);
+        let pq = DefaultPartQueue::new(device);
 
         world.add_observer(Self::handle_part_removal);
         world.insert_resource(Self {
             instancing_bind_group: part_group,
             uniform_bind_groups: Vec::new(),
             removal_buffer: Vec::new(),
-            map: SceneMap::new(),
+            map: SpatialMap::new(),
             part_queue: pq,
         });
 
@@ -216,7 +205,9 @@ impl PartRenderer {
             .expect("write_buffers() expects command encoder");
 
         let cell_size = scene_tree.map.get_size() as f32;
-        let mut keys: Vec<&SpatialKey> = scene_tree
+
+        // Get keys that are in bounds of camera
+        let mut keys: Vec<&DefaultSpatialKey> = scene_tree
             .map
             .spatial_map
             .keys()
@@ -227,6 +218,7 @@ impl PartRenderer {
                 camera.check_bounds(center, extent)
             })
             .collect();
+        // Sort keys by distance of camera
         keys.sort_by(|a, b| {
             a.position
                 .as_vec3()
@@ -234,25 +226,46 @@ impl PartRenderer {
                 .partial_cmp(&b.position.as_vec3().distance(camera.position))
                 .expect("No idea how cmp can fail but it did")
         });
+        // Separate keys into transparent and opaque buckets
+        let (opaque, transparent): (Vec<&DefaultSpatialKey>, Vec<&DefaultSpatialKey>) =
+            keys.iter().partition(|k| k.opaque);
 
-        // TODO: Find out better way to handle this
-        let mut uniforms: HashMap<Part, Vec<PartInstance>> = HashMap::new();
-        for key in keys {
+        let mut cells: HashMap<(Part, bool), Vec<PartInstance>> = HashMap::new();
+        // Collect opaque cells
+        for key in opaque {
             let Some(cell) = scene_tree.map.spatial_map.get(key) else {
                 continue;
             };
-
-            let vec = uniforms.entry(key.part).or_insert(Vec::new());
+            let vec = cells.entry((key.part, key.opaque)).or_insert(Vec::new());
             vec.extend_from_slice(&cell.buffers);
         }
+        // Collect transparent cells (also do extra sorting)
+        for key in transparent {
+            let Some(cell) = scene_tree.map.spatial_map.get(key) else {
+                continue;
+            };
+            let mut new_vec = cell.buffers.clone();
+            new_vec.sort_by(|a, b| {
+                let pos_a: Vec3A = Affine3A::from_cols_array_2d(&a.model).translation;
+                let pos_b: Vec3A = Affine3A::from_cols_array_2d(&b.model).translation;
 
-        for (key, value) in uniforms {
+                pos_a
+                    .distance(camera.position.into())
+                    .partial_cmp(&pos_b.distance(camera.position.into()))
+                    .expect("huh")
+                    .reverse()
+            });
+            let vec = cells.entry((key.part, key.opaque)).or_insert(Vec::new());
+            vec.extend_from_slice(&new_vec);
+        }
+
+        for (key, value) in cells {
             scene_tree
                 .part_queue
                 .map_slice(device, encoder, key, &value);
         }
 
-        scene_tree.part_queue.submit();
+        scene_tree.part_queue.finish();
     }
 
     pub fn render(
@@ -260,32 +273,37 @@ impl PartRenderer {
         _scene: Res<RenderState>,
         mut info: ResMut<FrameInfo>,
     ) {
+        let scene_tree = scene_tree.deref_mut();
         let pass = info
             .pass
             .as_mut()
             .expect("SceneTree::render(), expected RenderPass");
-        pass.set_pipeline(&part_details_get().instancing_pipeline);
+        pass.set_pipeline(&PartDetails::get().get_pipeline(false, true));
         pass.set_bind_group(0, &scene_tree.instancing_bind_group, &[]);
         //pass.set_bind_group(1, &scene_tree.scene_bg, &[]);
 
         scene_tree.part_queue.drain_instances(|ready| {
-            let (vb, ib) = part_buffer_fetch(ready.part_type);
+            let (vb, ib) = PartBuffers::fetch(ready.key.0);
             pass.set_vertex_buffer(0, vb.slice(..));
             pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
 
             pass.set_vertex_buffer(1, ready.buffer.slice(..));
             pass.draw_indexed(
-                0..part_index_count(ready.part_type) as _,
+                0..PartBuffers::get_index_count(ready.key.0) as _,
                 0,
                 0..ready.len as _,
             );
         });
 
-        pass.set_pipeline(&part_details_get().uniform_pipeline);
-        pass.set_bind_group(0, &scene_tree.instancing_bind_group, &[]);
-
         scene_tree.part_queue.drain_uniforms(|ready| {
-            let (vb, ib) = part_buffer_fetch(ready.part_type);
+            if ready.key.1 {
+                pass.set_pipeline(PartDetails::get().get_pipeline(true, true));
+            } else {
+                pass.set_pipeline(PartDetails::get().get_pipeline(true, false));
+            }
+            pass.set_bind_group(0, &scene_tree.instancing_bind_group, &[]);
+
+            let (vb, ib) = PartBuffers::fetch(ready.key.0);
             let (bind_group, offsets) = ready
                 .bind_and_offsets
                 .as_ref()
@@ -296,7 +314,7 @@ impl PartRenderer {
 
             for offset in offsets {
                 pass.set_bind_group(1, bind_group, &[*offset]);
-                pass.draw_indexed(0..part_index_count(ready.part_type) as _, 0, 0..1);
+                pass.draw_indexed(0..PartBuffers::get_index_count(ready.key.0) as _, 0, 0..1);
             }
         });
     }

@@ -93,7 +93,7 @@ fn get_builder(part: &QPartPhysicsItem) -> ColliderBuilder {
 
     match part.part {
         Part::Wedge => {
-            let points = reduce_to_scaled_hull(WEDGE_VERTICES, part.size);
+            let points = reduce_to_scaled_hull(&*WEDGE_VERTICES, part.size);
             ColliderBuilder::convex_hull(&points).expect("Internal error building convex hull")
         }
         Part::Ball => {

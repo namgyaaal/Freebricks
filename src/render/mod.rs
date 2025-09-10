@@ -4,5 +4,5 @@ pub use render_state::*;
 pub mod camera;
 pub mod debug_draw;
 pub mod parts;
-pub mod scene_map;
+pub mod spatial_map;
 pub mod texture;
