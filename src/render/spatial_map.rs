@@ -4,7 +4,10 @@ use bevy_ecs::entity::Entity;
 use bevy_platform::collections::{HashMap, HashSet};
 use glam::{IVec3, Vec3};
 
-use crate::{ecs::parts::Part, render::parts::part_formats::PartInstance};
+use crate::{
+    ecs::parts::Part,
+    render::{camera::Camera, parts::part_formats::PartInstance},
+};
 use anyhow::{Result, anyhow};
 
 pub type DefaultSpatialKey = SpatialKey<32>;
@@ -204,8 +207,30 @@ impl<const SIZE: usize> SpatialMap<SIZE> {
         Ok(uniform)
     }
 
-    // Camera Frustrum Culling
-    pub fn sweep() {
-        todo!()
+    /// Does a "sweep" over the spatial map and return cells that are seen by the camera
+    ///
+    /// Also sorts the cells by distance to the camera.
+    pub fn sweep(&self, camera: &Camera) -> Vec<(&SpatialKey<SIZE>, &SpatialCell<PartInstance>)> {
+        let size = SIZE as f32;
+        let mut key_cell: Vec<_> = self
+            .spatial_map
+            .iter()
+            .filter(|(k, _)| {
+                let center = k.position.as_vec3() + (size / 2.0);
+
+                // Have padding for parts on the edges.
+                let extent = Vec3::new(size, size, size) * 0.75;
+                camera.check_bounds(center, extent)
+            })
+            .collect();
+
+        key_cell.sort_by(|(a, _), (b, _)| {
+            let a_dist = a.position.as_vec3().distance(camera.position);
+            let b_dist = b.position.as_vec3().distance(camera.position);
+
+            a_dist.total_cmp(&b_dist)
+        });
+
+        key_cell
     }
 }

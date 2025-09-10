@@ -132,6 +132,13 @@ impl Game {
         let mut parts = Vec::new();
 
         parts.push((
+            Part::Wedge,
+            Position(Vec3::new(0.0, 4.0, 5.0)),
+            Size(Vec3::new(4.0, 4.0, 1.0)),
+            Color([120, 0, 120, 200]),
+        ));
+
+        parts.push((
             Part::Brick,
             Position(Vec3::new(0.0, 4.0, 2.0)),
             Size(Vec3::new(4.0, 4.0, 1.0)),

@@ -12,16 +12,15 @@ use crate::{
         camera::*,
         parts::{
             part_buffers::PartBuffers, part_details::PartDetails, part_formats::PartInstance,
-            part_queue::DefaultPartQueue,
+            part_queue::DefaultPartQueue, part_utils::split_and_flatten_cells,
         },
         render_state::{FrameInfo, RenderState},
-        spatial_map::{DefaultSpatialKey, DefaultSpatialMap, SpatialMap},
+        spatial_map::{DefaultSpatialMap, SpatialMap},
         texture::*,
     },
 };
 use bevy_ecs::prelude::*;
-use bevy_platform::collections::HashMap;
-use glam::{Affine3A, Vec3, Vec3A};
+use glam::{Affine3A, Vec3A};
 use wgpu::util::DeviceExt;
 
 #[derive(Resource)]
@@ -113,6 +112,8 @@ impl PartRenderer {
         Ok(())
     }
 
+    /// Trigger function when a part is removed. it isn't handled at once but pushed onto a removal buffer
+    ///     to be handled by PartRenderer::remove_bricks on the update scheduler.
     pub fn handle_part_removal(trigger: Trigger<OnRemove, Part>, mut st: ResMut<PartRenderer>) {
         let entity = trigger.target();
         st.removal_buffer.push(entity);
@@ -132,8 +133,7 @@ impl PartRenderer {
         Ok(())
     }
 
-    /// Called in update loop if bricks are added to the scene during the game
-    /// Reorders the BufferIndex component to its position in the instance buffer
+    /// Called in update scheduler if bricks are added to the scene.
     pub fn add_bricks(
         _state: Res<RenderState>,
         mut st: ResMut<PartRenderer>,
@@ -162,6 +162,7 @@ impl PartRenderer {
         Ok(())
     }
 
+    /// Called in update scheduler if parts are modified.
     pub fn update_bricks(
         scene: Res<RenderState>,
         mut st: ResMut<PartRenderer>,
@@ -191,6 +192,10 @@ impl PartRenderer {
         Ok(())
     }
 
+    /// Writes relevant part data into buffers to be sent to the GPU.
+    ///
+    /// Should be called after the frame's command encoder is created (RenderState::begin_frame)
+    ///     and before any render passes begin (RenderState::begin_pass).
     pub fn write_buffers(
         state: Res<RenderState>,
         mut scene_tree: ResMut<PartRenderer>,
@@ -204,70 +209,57 @@ impl PartRenderer {
             .as_mut()
             .expect("write_buffers() expects command encoder");
 
-        let cell_size = scene_tree.map.get_size() as f32;
+        let keys_cells = scene_tree.map.sweep(&camera);
 
-        // Get keys that are in bounds of camera
-        let mut keys: Vec<&DefaultSpatialKey> = scene_tree
-            .map
-            .spatial_map
-            .keys()
-            .into_iter()
-            .filter(|key| {
-                let center = key.position.as_vec3() + (cell_size / 2.0);
-                let extent = Vec3::new(cell_size, cell_size, cell_size) / 0.60;
-                camera.check_bounds(center, extent)
-            })
-            .collect();
-        // Sort keys by distance of camera
-        keys.sort_by(|a, b| {
-            a.position
-                .as_vec3()
-                .distance(camera.position)
-                .partial_cmp(&b.position.as_vec3().distance(camera.position))
-                .expect("No idea how cmp can fail but it did")
-        });
-        // Separate keys into transparent and opaque buckets
-        let (opaque, transparent): (Vec<&DefaultSpatialKey>, Vec<&DefaultSpatialKey>) =
-            keys.iter().partition(|k| k.opaque);
+        let (opaque, transparent): (Vec<(_, _)>, Vec<(_, _)>) =
+            keys_cells.iter().partition(|(k, _)| k.opaque);
 
-        let mut cells: HashMap<(Part, bool), Vec<PartInstance>> = HashMap::new();
-        // Collect opaque cells
-        for key in opaque {
-            let Some(cell) = scene_tree.map.spatial_map.get(key) else {
-                continue;
-            };
-            let vec = cells.entry((key.part, key.opaque)).or_insert(Vec::new());
-            vec.extend_from_slice(&cell.buffers);
-        }
-        // Collect transparent cells (also do extra sorting)
-        for key in transparent {
-            let Some(cell) = scene_tree.map.spatial_map.get(key) else {
-                continue;
-            };
-            let mut new_vec = cell.buffers.clone();
-            new_vec.sort_by(|a, b| {
-                let pos_a: Vec3A = Affine3A::from_cols_array_2d(&a.model).translation;
-                let pos_b: Vec3A = Affine3A::from_cols_array_2d(&b.model).translation;
-
-                pos_a
-                    .distance(camera.position.into())
-                    .partial_cmp(&pos_b.distance(camera.position.into()))
-                    .expect("huh")
-                    .reverse()
-            });
-            let vec = cells.entry((key.part, key.opaque)).or_insert(Vec::new());
-            vec.extend_from_slice(&new_vec);
-        }
-
-        for (key, value) in cells {
+        // Map opaque cells
+        for (key, cell) in opaque {
             scene_tree
                 .part_queue
-                .map_slice(device, encoder, key, &value);
+                .map_slice(device, encoder, (key.part, key.opaque), &cell.buffers);
         }
+
+        // Map transparent cells
+
+        // Since sweep() orders front-to-back and per-cell, we need to manually flatten transparent-keyed
+        //  cells and descending sort. Shouldn't be too much of an issue given there are usually
+        //  much less transparent objects than opaque ones.
+        let (mut bricks, mut wedges, mut balls) = split_and_flatten_cells(transparent);
+
+        let transparent_sort_fn = |a: &PartInstance, b: &PartInstance| {
+            let pos_a: Vec3A = Affine3A::from_cols_array_2d(&a.model).translation;
+            let pos_b: Vec3A = Affine3A::from_cols_array_2d(&b.model).translation;
+
+            pos_a
+                .distance(camera.position.into())
+                .total_cmp(&pos_b.distance(camera.position.into()))
+                .reverse()
+        };
+
+        bricks.sort_by(transparent_sort_fn);
+        wedges.sort_by(transparent_sort_fn);
+        balls.sort_by(transparent_sort_fn);
+
+        scene_tree
+            .part_queue
+            .map_slice(device, encoder, (Part::Brick, false), &bricks);
+
+        scene_tree
+            .part_queue
+            .map_slice(device, encoder, (Part::Wedge, false), &wedges);
+
+        scene_tree
+            .part_queue
+            .map_slice(device, encoder, (Part::Ball, false), &balls);
 
         scene_tree.part_queue.finish();
     }
 
+    /// Render buffers sent by PartRenderer::write_buffers
+    ///
+    /// Should be called during a render pass (between RenderState::begin_pass, RenderState::flush)
     pub fn render(
         mut scene_tree: ResMut<PartRenderer>,
         _scene: Res<RenderState>,

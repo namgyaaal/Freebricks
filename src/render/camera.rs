@@ -1,102 +1,18 @@
 use std::ops::{Deref, DerefMut};
 
 use bevy_ecs::prelude::*;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 use wgpu::util::DeviceExt;
 
 use crate::render::render_state::RenderState;
 
 use bytemuck::{Pod, Zeroable};
 
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Mat4 = Mat4::from_cols(
-    Vec4::new(1.0, 0.0, 0.0, 0.0),
-    Vec4::new(0.0, 1.0, 0.0, 0.0),
-    Vec4::new(0.0, 0.0, 0.5, 0.0),
-    Vec4::new(0.0, 0.0, 0.5, 1.0),
-);
-
-struct Plane {
-    normal: Vec3,
-    distance: f32,
-}
-
-impl Plane {
-    const ZERO: Self = Self {
-        normal: Vec3::ZERO,
-        distance: 0.0,
-    };
-
-    fn new(p1: Vec3, norm: Vec3) -> Self {
-        let normal = Vec3::normalize(norm);
-        let distance = normal.dot(p1);
-
-        Plane {
-            normal: normal,
-            distance: distance,
-        }
-    }
-
-    fn get_signed_distance(&self, p: Vec3) -> f32 {
-        Vec3::dot(self.normal, p) - self.distance
-    }
-
-    fn is_on_or_forward(&self, center: Vec3, extent: Vec3) -> bool {
-        let r = extent.x * self.normal.x.abs()
-            + extent.y * self.normal.y.abs()
-            + extent.z * self.normal.z.abs();
-
-        -r <= self.get_signed_distance(center)
-    }
-}
-
-struct Frustum {
-    top: Plane,
-    bottom: Plane,
-
-    left: Plane,
-    right: Plane,
-
-    near: Plane,
-    far: Plane,
-}
-
-impl Frustum {
-    const ZERO: Self = Self {
-        top: Plane::ZERO,
-        bottom: Plane::ZERO,
-        left: Plane::ZERO,
-        right: Plane::ZERO,
-        near: Plane::ZERO,
-        far: Plane::ZERO,
-    };
-
-    fn new(camera: &Camera, aspect: f32, fov_y: f32, z_near: f32, z_far: f32) -> Frustum {
-        let half_v_size = z_far * f32::tan(fov_y * 0.5);
-        let half_h_side = half_v_size * aspect;
-        let front_mult_far = z_far * camera.front;
-
-        Frustum {
-            near: Plane::new(camera.position + z_near * camera.front, camera.front),
-            far: Plane::new(camera.position + front_mult_far, -camera.front),
-            right: Plane::new(
-                camera.position,
-                Vec3::cross(front_mult_far - camera.right * half_h_side, camera.up),
-            ),
-            left: Plane::new(
-                camera.position,
-                Vec3::cross(camera.up, front_mult_far + camera.right * half_h_side),
-            ),
-            top: Plane::new(
-                camera.position,
-                Vec3::cross(camera.right, front_mult_far - camera.up * half_h_side),
-            ),
-            bottom: Plane::new(
-                camera.position,
-                Vec3::cross(front_mult_far + camera.up * half_v_size, camera.right),
-            ),
-        }
-    }
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
+struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+    view_pos: [f32; 4],
 }
 
 #[derive(Resource)]
@@ -119,12 +35,6 @@ pub struct Camera {
     pub default_group: wgpu::BindGroup,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable, Debug)]
-struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
-    view_pos: [f32; 4],
-}
 impl Camera {
     pub fn init(mut commands: Commands, state: Res<RenderState>) {
         let device = &state.device;
@@ -144,7 +54,7 @@ impl Camera {
 
         let aspect = config.width as f32 / config.height as f32;
         let proj = Mat4::perspective_rh(70.0_f32.to_radians(), aspect, 0.1, 800.0);
-        let mat = OPENGL_TO_WGPU_MATRIX * proj * view;
+        let mat = proj * view;
 
         let uniform = CameraUniform {
             view_proj: (mat).to_cols_array_2d(),
@@ -228,7 +138,7 @@ impl Camera {
         camera.frustum = Frustum::new(camera.deref(), aspect, 70.0_f32.to_radians(), 0.1, 800.0);
 
         camera.proj = Mat4::perspective_rh(70.0_f32.to_radians(), aspect, 0.1, 800.0);
-        let mat = OPENGL_TO_WGPU_MATRIX * camera.proj * camera.view;
+        let mat = camera.proj * camera.view;
 
         let uniform = CameraUniform {
             view_proj: (mat).to_cols_array_2d(),
@@ -245,5 +155,92 @@ impl Camera {
             && self.frustum.far.is_on_or_forward(center, extent)
             && self.frustum.left.is_on_or_forward(center, extent)
             && self.frustum.right.is_on_or_forward(center, extent)
+    }
+}
+
+struct Plane {
+    normal: Vec3,
+    distance: f32,
+}
+
+impl Plane {
+    const ZERO: Self = Self {
+        normal: Vec3::ZERO,
+        distance: 0.0,
+    };
+
+    fn new(p1: Vec3, norm: Vec3) -> Self {
+        let normal = Vec3::normalize(norm);
+        let distance = normal.dot(p1);
+
+        Plane {
+            normal: normal,
+            distance: distance,
+        }
+    }
+
+    fn get_signed_distance(&self, p: Vec3) -> f32 {
+        Vec3::dot(self.normal, p) - self.distance
+    }
+
+    fn is_on_or_forward(&self, center: Vec3, extent: Vec3) -> bool {
+        let r = extent.x * self.normal.x.abs()
+            + extent.y * self.normal.y.abs()
+            + extent.z * self.normal.z.abs();
+
+        -r <= self.get_signed_distance(center)
+    }
+}
+
+struct Frustum {
+    top: Plane,
+    bottom: Plane,
+
+    left: Plane,
+    right: Plane,
+
+    near: Plane,
+    far: Plane,
+}
+
+impl Frustum {
+    const ZERO: Self = Self {
+        top: Plane::ZERO,
+        bottom: Plane::ZERO,
+        left: Plane::ZERO,
+        right: Plane::ZERO,
+        near: Plane::ZERO,
+        far: Plane::ZERO,
+    };
+
+    fn new(camera: &Camera, aspect: f32, fov_y: f32, z_near: f32, z_far: f32) -> Frustum {
+        /*
+           Directly based off of
+           https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
+        */
+        let half_v_size = z_far * f32::tan(fov_y * 0.5);
+        let half_h_side = half_v_size * aspect;
+        let front_mult_far = z_far * camera.front;
+
+        Frustum {
+            near: Plane::new(camera.position + z_near * camera.front, camera.front),
+            far: Plane::new(camera.position + front_mult_far, -camera.front),
+            right: Plane::new(
+                camera.position,
+                Vec3::cross(front_mult_far - camera.right * half_h_side, camera.up),
+            ),
+            left: Plane::new(
+                camera.position,
+                Vec3::cross(camera.up, front_mult_far + camera.right * half_h_side),
+            ),
+            top: Plane::new(
+                camera.position,
+                Vec3::cross(camera.right, front_mult_far - camera.up * half_h_side),
+            ),
+            bottom: Plane::new(
+                camera.position,
+                Vec3::cross(front_mult_far + camera.up * half_v_size, camera.right),
+            ),
+        }
     }
 }
