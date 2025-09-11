@@ -117,8 +117,6 @@ impl Game {
                 .chain(),
         );
 
-        //let mut parts = Vec::new();
-
         let mut rng = SmallRng::seed_from_u64(42);
 
         world.spawn((
@@ -131,31 +129,23 @@ impl Game {
 
         let mut parts = Vec::new();
 
-        parts.push((
-            Part::Wedge,
-            Position(Vec3::new(0.0, 4.0, 5.0)),
-            Size(Vec3::new(4.0, 4.0, 1.0)),
-            Color([120, 0, 120, 200]),
-        ));
+        for x in -50..50 {
+            for y in 0..40 {
+                let part_type = match rng.random::<u8>() % 3 {
+                    0 => Part::Brick,
+                    1 => Part::Ball,
+                    2 => Part::Wedge,
+                    _ => Part::Brick,
+                };
 
-        parts.push((
-            Part::Brick,
-            Position(Vec3::new(0.0, 4.0, 2.0)),
-            Size(Vec3::new(4.0, 4.0, 1.0)),
-            Color([255, 0, 0, 200]),
-        ));
-        parts.push((
-            Part::Brick,
-            Position(Vec3::new(0.0, 4.0, 4.0)),
-            Size(Vec3::new(4.0, 4.0, 1.0)),
-            Color([0, 255, 0, 100]),
-        ));
-        parts.push((
-            Part::Brick,
-            Position(Vec3::new(0.0, 4.0, 6.0)),
-            Size(Vec3::new(4.0, 4.0, 1.0)),
-            Color([0, 0, 255, 255]),
-        ));
+                parts.push((
+                    part_type,
+                    Position(Vec3::new(x as f32, 3.0, y as f32)),
+                    Size(Vec3::new(1.0, 1.0, 1.0)),
+                    Color([rng.random(), rng.random(), rng.random(), 128]),
+                ))
+            }
+        }
 
         let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
 

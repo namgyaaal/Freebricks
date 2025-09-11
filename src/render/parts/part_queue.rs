@@ -305,4 +305,40 @@ impl<K: Copy, I: Pod + Zeroable, U: Pod + Zeroable + From<I>> PartQueue<K, I, U>
             }
         }
     }
+
+    /// Alternative to drain_uniforms or drain_instances where we handle them together.
+    /// Should not be called alongside drain_*
+    pub fn get_ready_buffers(&mut self) -> Vec<&ReadyBuffer<K>> {
+        let instances = self.ready_instance_buffers.make_contiguous();
+        let uniforms = self.ready_uniform_buffers.make_contiguous();
+
+        instances.iter().chain(uniforms.iter()).collect()
+    }
+
+    /// Called after get_ready_buffers is done, should be dropped out of scope.
+    pub fn empty_buffers(&mut self) {
+        // Empty instance buffers
+        while let Some(ready_buffer) = self.ready_instance_buffers.pop_front() {
+            match ready_buffer {
+                ReadyBuffer { buffer, .. } => {
+                    self.unused_instance_buffers.push_back(buffer);
+                }
+            }
+        }
+        // Empty uniform buffers
+        while let Some(ready_buffer) = self.ready_uniform_buffers.pop_front() {
+            match ready_buffer {
+                ReadyBuffer {
+                    buffer,
+                    bind_and_offsets,
+                    ..
+                } => {
+                    let (bind_group, _) =
+                        bind_and_offsets.expect("Bind Group should accompany uniform buffer");
+
+                    self.unused_uniform_buffers.push_back((buffer, bind_group));
+                }
+            }
+        }
+    }
 }
