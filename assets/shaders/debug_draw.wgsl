@@ -6,8 +6,6 @@ struct Camera {
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
-
-
 struct VertexInput {
     @location(0) position: vec3<f32>,
 }
@@ -27,7 +25,6 @@ fn vs_main(
 
     return out;
 }
-
 
 
 @fragment

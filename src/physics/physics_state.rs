@@ -95,14 +95,15 @@ impl PhysicsState {
 
     /// Add schedulers
     pub fn setup_system() -> ScheduleConfigs<ScheduleSystem> {
-        (setup_parts, setup_models).chain()
+        (|| {}).chain()
     }
 
     pub fn update_system(debug_draw: bool) -> ScheduleConfigs<ScheduleSystem> {
         (
+            setup_parts,
+            setup_models,
             Self::step,
             Self::write_debug.run_if(move || -> bool { debug_draw }),
-            Self::add_bricks,
             handle_subpart,
             handle_submodel,
             handle_anchor_queue,

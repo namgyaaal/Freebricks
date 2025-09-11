@@ -37,7 +37,7 @@ pub struct ShapeHandle(pub ColliderHandle);
 */
 
 #[derive(QueryData)]
-#[query_data(mutable, derive(Debug))]
+#[query_data(derive(Debug))]
 /// Query for spatial data agnostic to what it is.
 pub struct QPhysics {
     pub entity: Entity,

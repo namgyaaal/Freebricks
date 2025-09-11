@@ -2,19 +2,27 @@ use crate::ecs::{common::*, physics::*, render::*};
 use bevy_ecs::query::QueryData;
 use bevy_ecs::{prelude::*, query::QueryFilter};
 
-#[derive(Component, Debug, Default, PartialEq, Eq)]
-#[require(StudInfo, Position, Rotation, Color, Size, BufferIndex, Physical)]
+#[derive(Component, Debug, Default, PartialEq, Eq, Hash, Clone, Copy)]
+#[require(StudInfo, Position, Rotation, Color, Size, BufferIndex)]
 // Encompasses Brick, Wedge, Ball and Mesh
 pub enum Part {
     #[default]
-    Brick,
+    Brick = 0,
     // TODO ----
-    Wedge,
-    Ball,
-    Mesh,
+    Wedge = 1,
+    Ball = 2,
+    Mesh = 3,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+impl Part {
+    /// Get number of variants
+    /// Note: replace with variant_count once that transistions out of nightly.
+    pub fn count() -> usize {
+        4
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 /// Handling flat, outlet and inlet for now.
 /// In theory should support 16 possible types
 pub enum StudType {
@@ -24,7 +32,6 @@ pub enum StudType {
 }
 
 #[derive(Component, Debug)]
-#[require(Position, Rotation, Color, Size, BufferIndex, RenderMode, Physical)]
 /// Component for studtype for bottom and top (also hints at being a Brick)
 pub struct StudInfo {
     pub top: StudType,
@@ -58,6 +65,17 @@ pub struct QPart {
     pub size: &'static Size,
     pub color: &'static Color,
     pub buffer_index: &'static BufferIndex,
+}
+
+#[derive(QueryData)]
+#[query_data(derive(Debug))]
+/// Query for spatial data agnostic to what it is.
+pub struct QPartPhysics {
+    pub entity: Entity,
+    pub part: &'static Part,
+    pub position: &'static Position,
+    pub rotation: &'static Rotation,
+    pub size: &'static Size,
     pub physical: &'static Physical,
 }
 
@@ -120,4 +138,10 @@ pub struct FPartChange {
         Changed<Size>,
         Changed<Color>,
     )>,
+}
+
+#[derive(QueryFilter)]
+pub struct FPartChangeTransform {
+    _c: With<Part>,
+    _or: Or<(Changed<Position>, Changed<Rotation>)>,
 }

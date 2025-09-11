@@ -5,13 +5,14 @@ use crate::{
     render::{
         camera::Camera,
         debug_draw::DebugDraw,
-        render_state::{RenderOptions, RenderPassInfo, RenderState},
-        scene_tree::SceneTree,
+        parts::part_renderer::PartRenderer,
+        render_state::{FrameInfo, RenderState},
     },
 };
 use anyhow::Result;
 use bevy_ecs::prelude::*;
 use glam::Vec3;
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use std::sync::Arc;
 use tracing::error;
 use winit::{dpi::PhysicalSize, window::Window};
@@ -19,12 +20,30 @@ use winit::{dpi::PhysicalSize, window::Window};
 #[derive(Component)]
 pub struct Tag1;
 
-pub fn foobar(mut commands: Commands, mut count: Local<u64>, test: Query<(Entity, &Tag1)>) {
-    if *count == 140 {
-        let (e, _) = test.iter().next().unwrap();
-        commands.entity(e).despawn();
+#[allow(unused)]
+pub fn foobar(
+    mut commands: Commands,
+    mut count: Local<u64>,
+    mut test: Query<(Entity, &Part)>,
+    mut storage: Local<Vec<Vec3>>,
+) {
+    //let mut rng = SmallRng::seed_from_u64(*count);
+    /*
+    let mut rng = SmallRng::seed_from_u64(*count);
+    if *count % 30 == 0 {
+        commands.spawn((
+            Part::Ball,
+            Position(Vec3::new(
+                f32::cos(rng.random()),
+                20.0,
+                f32::cos(rng.random()),
+            )),
+            Physical,
+            Size(Vec3::new(2.0, 2.0, 2.0)),
+            Color([rng.random(), rng.random(), rng.random(), rng.random()]),
+        ));
     }
-    *count += 1;
+    *count += 1;*/
 }
 
 pub struct Game {
@@ -37,7 +56,7 @@ pub struct Game {
 
 impl Game {
     pub async fn new(window: Arc<Window>) -> Result<Self> {
-        let render_state = RenderState::new(window.clone(), RenderOptions::RenderTimestamps.into())
+        let render_state = RenderState::new(window.clone())
             .await
             .expect("Game::new(), couldn't create Render State");
 
@@ -66,78 +85,67 @@ impl Game {
         init_schedule.add_systems(
             (
                 Camera::init,
-                SceneTree::init,
+                PartRenderer::init,
                 DebugDraw::init,
                 build_models,
-                PhysicsState::setup_system(),
+                //PhysicsState::setup_system(),
             )
                 .chain(),
         );
-        update_schedule.add_systems((foobar,).chain());
+        update_schedule.add_systems((foobar, Camera::update).chain());
 
         post_update_schedule.add_systems(
             (
                 handle_model_transform,
                 PhysicsState::update_system(true),
-                SceneTree::remove_bricks,
-                SceneTree::add_bricks,
-                SceneTree::update_bricks,
+                PartRenderer::remove_bricks,
+                PartRenderer::add_bricks,
+                PartRenderer::update_bricks,
             )
                 .chain(),
         );
 
-        render_schedule.add_systems((
-            SceneTree::render.before(RenderState::flush),
-            DebugDraw::render.before(RenderState::flush),
-            RenderState::flush,
-        ));
+        render_schedule.add_systems(
+            (
+                PartRenderer::write_buffers,
+                RenderState::begin_pass,
+                PartRenderer::render,
+                DebugDraw::render,
+                RenderState::flush,
+                PartRenderer::recall,
+            )
+                .chain(),
+        );
 
-        // Do anything here
-        let mut parts = Vec::new();
+        let mut rng = SmallRng::seed_from_u64(42);
+
         world.spawn((
             Part::default(),
-            Position(Vec3::new(0.0, -7.0, 0.0)),
-            Size(Vec3::new(20.0, 1.0, 20.0)),
-            Physical,
+            Position(Vec3::new(0.0, 0.0, 0.0)),
+            Size(Vec3::new(100.0, 1.0, 100.0)),
+            Color([rng.random(), rng.random(), rng.random(), 255]),
             Anchor,
-            Tag1,
         ));
 
-        parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -10.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));
+        let mut parts = Vec::new();
 
-        parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -8.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));
-        /*
-        parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -7.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));
-        */
-        parts.push((
-            Part::default(),
-            Position(Vec3::new(0.0, -11.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));
+        for x in -50..50 {
+            for y in 0..40 {
+                let part_type = match rng.random::<u8>() % 3 {
+                    0 => Part::Brick,
+                    1 => Part::Ball,
+                    2 => Part::Wedge,
+                    _ => Part::Brick,
+                };
 
-        /*
-        world.spawn((
-            Part::default(),
-            Position(Vec3::new(0.0, -9.0, 0.0)),
-            Physical,
-            Color([rand::random(), rand::random(), rand::random(), 255]),
-        ));*/
+                parts.push((
+                    part_type,
+                    Position(Vec3::new(x as f32, 3.0, y as f32)),
+                    Size(Vec3::new(1.0, 1.0, 1.0)),
+                    Color([rng.random(), rng.random(), rng.random(), 128]),
+                ))
+            }
+        }
 
         let _ = world.spawn_batch(parts).collect::<Vec<Entity>>();
 
@@ -166,12 +174,11 @@ impl Game {
         // We don't really need to do ECS for rendering, all relevant information should be passed to proper globals
         // e.g., ResMut<SceneTree> should have buffers generated by now here.
         let mut state = self.world.get_resource_mut::<RenderState>().unwrap();
-        match state.begin_pass() {
+        match state.begin_frame() {
             Ok(None) => {}
-            Ok(Some(new_info)) => {
-                let mut info = self.world.get_resource_mut::<RenderPassInfo>().unwrap();
-
-                *info = new_info;
+            Ok(Some(frame)) => {
+                let mut old_frame = self.world.get_resource_mut::<FrameInfo>().unwrap();
+                *old_frame = frame;
                 self.render.run(&mut self.world);
             }
             Err(e) => {

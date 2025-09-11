@@ -8,12 +8,12 @@ use crate::{
     common::asset_cache::AssetCache,
     render::{
         camera::Camera,
-        render_state::{RenderPassInfo, RenderState},
+        render_state::{FrameInfo, RenderState},
         texture::Texture,
     },
 };
 
-const MAX_DEBUG_VERTICES: u64 = 1024 * 1024;
+const MAX_DEBUG_VERTICES: u64 = u16::MAX as u64 * 2;
 
 #[derive(Resource)]
 pub struct DebugDraw {
@@ -115,7 +115,7 @@ impl DebugDraw {
     /// Renders the debug draw lines onto the scene
     pub fn render(
         mut debug_draw: ResMut<DebugDraw>,
-        mut info: ResMut<RenderPassInfo>,
+        mut info: ResMut<FrameInfo>,
         state: Res<RenderState>,
         camera: Res<Camera>,
     ) {
